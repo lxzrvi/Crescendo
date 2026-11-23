@@ -18,6 +18,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.blur
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import kotlin.math.roundToInt
@@ -64,11 +65,12 @@ fun AnimatedPurpleBlobs(modifier: Modifier = Modifier) {
     BoxWithConstraints(modifier = modifier) {
         val maxW = constraints.maxWidth.toFloat()
         val maxH = constraints.maxHeight.toFloat()
+        val density = LocalDensity.current
 
         specs.forEach { spec ->
             val angle = (progress * 2.0 * Math.PI + spec.phase).toFloat()
-            val dx = sin(angle) * spec.ampXDp.dp.toPx()
-            val dy = sin(angle * 2f) * spec.ampYDp.dp.toPx()
+            val dx = sin(angle) * with(density) { spec.ampXDp.dp.toPx() }
+            val dy = sin(angle * 2f) * with(density) { spec.ampYDp.dp.toPx() }
 
             Box(
                 modifier = Modifier
