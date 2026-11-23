@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Crescendo logo mark (from logo/Crescendo_main_icon.svg), scaled down inside the adaptive-icon safe zone -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="900"
+    android:viewportHeight="900">
+    <group
+        android:translateX="450"
+        android:translateY="450">
+        <group
+            android:scaleX="0.72"
+            android:scaleY="0.72">
+            <path
+                android:fillColor="#FFFFFF"
+                android:pathData="M0 -435 A135 135 0 0 1 0 -165 A165 165 0 1 0 165 0 A135 135 0 1 1 300 135 A165 165 0 0 0 135 300 A135 135 0 0 1 -135 300 A165 165 0 0 0 -300 135 A135 135 0 0 1 -300 -135 A165 165 0 0 0 -135 -300 A135 135 0 0 1 0 -435 Z" />
+        </group>
+    </group>
+</vector>
