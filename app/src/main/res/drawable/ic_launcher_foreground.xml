@@ -9,8 +9,8 @@
         android:translateX="450"
         android:translateY="450">
         <group
-            android:scaleX="0.5"
-            android:scaleY="0.5">
+            android:scaleX="0.4"
+            android:scaleY="0.4">
             <path
                 android:fillColor="#FFFFFF"
                 android:pathData="M0 -435 A135 135 0 0 1 0 -165 A165 165 0 1 0 165 0 A135 135 0 1 1 300 135 A165 165 0 0 0 135 300 A135 135 0 0 1 -135 300 A165 165 0 0 0 -300 135 A135 135 0 0 1 -300 -135 A165 165 0 0 0 -135 -300 A135 135 0 0 1 0 -435 Z" />

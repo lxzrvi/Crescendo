@@ -17,37 +17,44 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.blur
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
+import com.lxzrvi.crescendo.ui.theme.Blush
+import com.lxzrvi.crescendo.ui.theme.NeonRed
+import com.lxzrvi.crescendo.ui.theme.RedDeep
+import com.lxzrvi.crescendo.ui.theme.RedSoft
 import kotlin.math.roundToInt
 import kotlin.math.sin
 
 private data class BlobSpec(
-    val color: Color,
+    val colors: List<Color>, // gradient mix for the shape
+    val alpha: Float,
     val sizeDp: Float,
-    val centerX: Float, // fraction of width
-    val centerY: Float, // fraction of height
+    val centerX: Float,  // fraction of width (spread across the whole top)
+    val centerY: Float,  // fraction of height
     val ampXDp: Float,
     val ampYDp: Float,
     val phase: Float,
 )
 
 /**
- * Liquid-glass intro background: 6 shapes in shades of purple,
- * drifting slowly and blurred into a soft glow.
+ * Liquid-glass intro background: soft shapes spread across the top,
+ * mixed from a red + white palette, heavily blurred and blended into
+ * the black screen. Everything drifts extremely slowly.
  */
 @Composable
 fun AnimatedPurpleBlobs(modifier: Modifier = Modifier) {
     val specs = remember {
         listOf(
-            BlobSpec(Color(0xFF7C3AED), 320f, 0.20f, 0.22f, 40f, 28f, 0.0f),
-            BlobSpec(Color(0xFF8B5CF6), 260f, 0.84f, 0.18f, 34f, 46f, 1.1f),
-            BlobSpec(Color(0xFFA855F7), 210f, 0.70f, 0.52f, 48f, 30f, 2.3f),
-            BlobSpec(Color(0xFF6D28D9), 300f, 0.16f, 0.55f, 28f, 44f, 3.4f),
-            BlobSpec(Color(0xFFC084FC), 170f, 0.50f, 0.10f, 56f, 22f, 4.2f),
-            BlobSpec(Color(0xFF4C1D95), 340f, 0.92f, 0.60f, 26f, 38f, 5.1f),
+            BlobSpec(listOf(NeonRed, RedSoft), 0.9f, 320f, 0.14f, 0.22f, 36f, 28f, 0.0f),
+            BlobSpec(listOf(RedDeep, NeonRed), 0.85f, 270f, 0.86f, 0.16f, 32f, 44f, 1.2f),
+            BlobSpec(listOf(Blush, Color.White.copy(alpha = 0.75f)), 0.55f, 200f, 0.70f, 0.52f, 44f, 30f, 2.4f),
+            BlobSpec(listOf(NeonRed, Blush), 0.6f, 260f, 0.20f, 0.55f, 26f, 40f, 3.5f),
+            BlobSpec(listOf(RedSoft, Color.White.copy(alpha = 0.6f)), 0.5f, 180f, 0.52f, 0.08f, 52f, 22f, 4.3f),
+            BlobSpec(listOf(RedDeep, RedSoft), 0.75f, 300f, 0.94f, 0.48f, 24f, 34f, 5.2f),
         )
     }
 
@@ -56,7 +63,7 @@ fun AnimatedPurpleBlobs(modifier: Modifier = Modifier) {
         initialValue = 0f,
         targetValue = 1f,
         animationSpec = infiniteRepeatable(
-            animation = tween(durationMillis = 42000, easing = LinearEasing),
+            animation = tween(durationMillis = 60000, easing = LinearEasing),
             repeatMode = RepeatMode.Restart,
         ),
         label = "blobProgress",
@@ -82,7 +89,11 @@ fun AnimatedPurpleBlobs(modifier: Modifier = Modifier) {
                     }
                     .size(spec.sizeDp.dp)
                     .blur(radius = 72.dp)
-                    .background(color = spec.color, shape = CircleShape)
+                    .background(
+                        brush = Brush.linearGradient(spec.colors),
+                        shape = CircleShape,
+                        alpha = spec.alpha,
+                    )
             )
         }
     }

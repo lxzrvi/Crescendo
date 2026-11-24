@@ -7,9 +7,9 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 
 private val CrescendoColors = darkColorScheme(
-    primary = NeonPurple,
+    primary = Accent,
     onPrimary = AmoledBlack,
-    secondary = VioletSoft,
+    secondary = RedSoft,
     onSecondary = AmoledBlack,
     background = AmoledBlack,
     onBackground = TextPrimary,

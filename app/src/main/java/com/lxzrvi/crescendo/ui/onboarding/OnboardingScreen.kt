@@ -33,6 +33,7 @@ import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -45,21 +46,22 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.lxzrvi.crescendo.ui.theme.Accent
 import com.lxzrvi.crescendo.ui.theme.AmoledBlack
 import com.lxzrvi.crescendo.ui.theme.BorelFamily
-import com.lxzrvi.crescendo.ui.theme.NeonPurple
 import com.lxzrvi.crescendo.ui.theme.TextPrimary
 import com.lxzrvi.crescendo.ui.theme.TextSecondary
+import kotlinx.coroutines.delay
 
 @Composable
 fun OnboardingScreen(onFinished: () -> Unit) {
     val context = LocalContext.current
     var pageIndex by remember { mutableStateOf(0) }
     val pageCount = PermissionPages.all.size
-    val page = PermissionPages.all[pageIndex]
+    val page = PermissionPages.all.getOrElse(pageIndex) { PermissionPages.all.last() }
 
     fun advance() {
-        if (pageIndex + 1 >= pageCount) onFinished() else pageIndex++
+        pageIndex++
     }
 
     // Runtime permission launcher (music / notifications)
@@ -99,14 +101,22 @@ fun OnboardingScreen(onFinished: () -> Unit) {
     }
 
     // System back goes to previous permission without sliding the whole screen
-    BackHandler(enabled = pageIndex > 0) { pageIndex-- }
+    BackHandler(enabled = pageIndex > 0 && pageIndex < pageCount) { pageIndex-- }
+
+    // Last step slides in too, then hands over to the home screen
+    LaunchedEffect(pageIndex) {
+        if (pageIndex >= pageCount) {
+            delay(900)
+            onFinished()
+        }
+    }
 
     Column(
         modifier = Modifier
             .fillMaxSize()
             .background(AmoledBlack)
     ) {
-        // Static top area: soft moving purple shapes + Borel wordmark
+        // Static top area: soft moving shapes + Borel wordmark
         Box(
             modifier = Modifier
                 .weight(1f)
@@ -129,7 +139,7 @@ fun OnboardingScreen(onFinished: () -> Unit) {
             )
         }
 
-        // Only this bottom content slides left/right between permissions
+        // Only this bottom content slides left/right between steps
         AnimatedContent(
             targetState = pageIndex,
             modifier = Modifier.fillMaxWidth(),
@@ -142,39 +152,43 @@ fun OnboardingScreen(onFinished: () -> Unit) {
                 } else {
                     (slideInHorizontally(animationSpec = tween(420)) { -it } +
                         fadeIn(animationSpec = tween(420))) togetherWith
-                        (slideOutHorizontally(animationSpec = tween(420)) { it } +
+                    (slideOutHorizontally(animationSpec = tween(420)) { it } +
                             fadeOut(animationSpec = tween(420)))
                 }
             },
             label = "permissionContent",
         ) { index ->
-            PermissionContent(
-                page = PermissionPages.all[index],
-                onOk = { request(PermissionPages.all[index]) },
-            )
+            if (index < pageCount) {
+                PermissionContent(
+                    page = PermissionPages.all[index],
+                    onOk = { request(PermissionPages.all[index]) },
+                )
+            } else {
+                FinishContent()
+            }
         }
 
-        // Square indicator, small and low
+        // Square indicator, small and low, tight gap with the button
         Row(
             modifier = Modifier
                 .align(Alignment.CenterHorizontally)
-                .padding(top = 20.dp, bottom = 40.dp),
+                .padding(top = 10.dp, bottom = 26.dp),
             horizontalArrangement = Arrangement.spacedBy(10.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
             repeat(pageCount) { i ->
                 val active = i == pageIndex
                 val dotSize by animateDpAsState(
-                    targetValue = if (active) 10.dp else 7.dp,
+                    targetValue = if (active) 9.dp else 6.dp,
                     animationSpec = tween(300),
                     label = "dotSize",
                 )
                 Box(
                     modifier = Modifier
                         .size(dotSize)
-                        .clip(RoundedCornerShape(3.dp))
+                        .clip(RoundedCornerShape(2.dp))
                         .background(
-                            color = if (active) NeonPurple else NeonPurple.copy(alpha = 0.25f)
+                            color = if (active) Accent else Accent.copy(alpha = 0.25f)
                         )
                 )
             }
@@ -187,7 +201,7 @@ private fun PermissionContent(page: PermissionPage, onOk: () -> Unit) {
     Column(
         modifier = Modifier
             .fillMaxWidth()
-            .padding(start = 28.dp, end = 28.dp, bottom = 24.dp),
+            .padding(start = 28.dp, end = 28.dp, bottom = 12.dp),
         horizontalAlignment = Alignment.Start,
     ) {
         Text(
@@ -196,22 +210,22 @@ private fun PermissionContent(page: PermissionPage, onOk: () -> Unit) {
             color = TextPrimary,
             textAlign = TextAlign.Start,
         )
-        Spacer(modifier = Modifier.height(12.dp))
+        Spacer(modifier = Modifier.height(10.dp))
         Text(
             text = page.detail,
             style = MaterialTheme.typography.bodyMedium,
             color = TextSecondary,
             textAlign = TextAlign.Start,
         )
-        Spacer(modifier = Modifier.height(20.dp))
+        Spacer(modifier = Modifier.height(16.dp))
         Button(
             onClick = onOk,
             modifier = Modifier
                 .fillMaxWidth()
                 .height(52.dp),
-            shape = RoundedCornerShape(26.dp),
+            shape = RoundedCornerShape(4.dp),
             colors = ButtonDefaults.buttonColors(
-                containerColor = NeonPurple,
+                containerColor = Accent,
                 contentColor = AmoledBlack,
             ),
         ) {
@@ -222,5 +236,29 @@ private fun PermissionContent(page: PermissionPage, onOk: () -> Unit) {
                 letterSpacing = 1.sp,
             )
         }
+    }
+}
+
+@Composable
+private fun FinishContent() {
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(start = 28.dp, end = 28.dp, bottom = 12.dp),
+        horizontalAlignment = Alignment.Start,
+    ) {
+        Text(
+            text = "You're all set",
+            style = MaterialTheme.typography.headlineMedium,
+            color = TextPrimary,
+            textAlign = TextAlign.Start,
+        )
+        Spacer(modifier = Modifier.height(10.dp))
+        Text(
+            text = "Opening your library…",
+            style = MaterialTheme.typography.bodyMedium,
+            color = TextSecondary,
+            textAlign = TextAlign.Start,
+        )
     }
 }

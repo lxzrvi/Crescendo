@@ -5,11 +5,14 @@ import androidx.compose.ui.graphics.Color
 val AmoledBlack = Color(0xFF000000)
 val InkBlack = Color(0xFF0A0612)
 
-val NeonPurple = Color(0xFFA855F7)
-val VioletPrimary = Color(0xFF8B5CF6)
-val VioletDeep = Color(0xFF6D28D9)
-val VioletSoft = Color(0xFFC084FC)
-val VioletMist = Color(0xFF4C1D95)
+// Main accent: red (with white mixed into the background shapes)
+val NeonRed = Color(0xFFFF3B30)
+val RedDeep = Color(0xFFDC2626)
+val RedSoft = Color(0xFFF87171)
+val Blush = Color(0xFFFDA4AF)
 
 val TextPrimary = Color(0xFFF5F3FF)
-val TextSecondary = Color(0xFFB8AAD9)
+val TextSecondary = Color(0xFFC9BFD6)
+
+// Aliases used across UI so the accent color lives in one place
+val Accent = NeonRed
