@@ -14,9 +14,10 @@ import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.slideInHorizontally
+import androidx.compose.animation.slideInVertically
 import androidx.compose.animation.slideOutHorizontally
+import androidx.compose.animation.slideOutVertically
 import androidx.compose.animation.togetherWith
-import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -34,7 +35,6 @@ import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -47,12 +47,12 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.foundation.background
 import com.lxzrvi.crescendo.ui.theme.Accent
 import com.lxzrvi.crescendo.ui.theme.AmoledBlack
 import com.lxzrvi.crescendo.ui.theme.BorelFamily
 import com.lxzrvi.crescendo.ui.theme.TextPrimary
 import com.lxzrvi.crescendo.ui.theme.TextSecondary
-import kotlinx.coroutines.delay
 
 @Composable
 fun OnboardingScreen(onFinished: () -> Unit) {
@@ -102,15 +102,7 @@ fun OnboardingScreen(onFinished: () -> Unit) {
     }
 
     // System back goes to previous permission without sliding the whole screen
-    BackHandler(enabled = pageIndex > 0 && pageIndex < pageCount) { pageIndex-- }
-
-    // Last step slides in too, then hands over to the home screen
-    LaunchedEffect(pageIndex) {
-        if (pageIndex >= pageCount) {
-            delay(900)
-            onFinished()
-        }
-    }
+    BackHandler(enabled = pageIndex > 0) { pageIndex-- }
 
     Box(modifier = Modifier.fillMaxSize()) {
 
@@ -119,36 +111,44 @@ fun OnboardingScreen(onFinished: () -> Unit) {
 
         Column(modifier = Modifier.fillMaxSize()) {
 
-            // Static center: Borel wordmark over the blobs
+            // Wordmark during permissions; on the welcome page the top
+            // gradient stays fully visible
             Box(
                 modifier = Modifier
-                    .weight(1f)
+                    .height(300.dp)
                     .fillMaxWidth(),
                 contentAlignment = Alignment.Center,
             ) {
-                Text(
-                    text = "Crescendo",
-                    fontFamily = BorelFamily,
-                    fontSize = 72.sp,
-                    color = TextPrimary,
-                    textAlign = TextAlign.Center,
-                )
+                if (pageIndex < pageCount) {
+                    Text(
+                        text = "Crescendo",
+                        fontFamily = BorelFamily,
+                        fontSize = 72.sp,
+                        color = TextPrimary,
+                        textAlign = TextAlign.Center,
+                    )
+                }
             }
 
-            // Only this bottom content slides left/right between steps
+            // Bottom content: slides sideways between permissions,
+            // slides UP from the bottom for the welcome page
             AnimatedContent(
                 targetState = pageIndex,
                 modifier = Modifier.fillMaxWidth(),
                 transitionSpec = {
-                    if (targetState > initialState) {
+                    if (targetState >= pageCount && targetState != initialState) {
+                        (slideInVertically(animationSpec = tween(500)) { it } +
+                            fadeIn(animationSpec = tween(500))) togetherWith
+                            (fadeOut(animationSpec = tween(200)))
+                    } else if (targetState < initialState) {
+                        (slideInHorizontally(animationSpec = tween(420)) { -it } +
+                            fadeIn(animationSpec = tween(420))) togetherWith
+                            (slideOutHorizontally(animationSpec = tween(420)) { it } +
+                                fadeOut(animationSpec = tween(420)))
+                    } else {
                         (slideInHorizontally(animationSpec = tween(420)) { it } +
                             fadeIn(animationSpec = tween(420))) togetherWith
                             (slideOutHorizontally(animationSpec = tween(420)) { -it } +
-                                fadeOut(animationSpec = tween(420)))
-                    } else {
-                        (slideInHorizontally(animationSpec = tween(420)) { -it } +
-                            fadeIn(animationSpec = tween(420))) togetherWith
-                        (slideOutHorizontally(animationSpec = tween(420)) { it } +
                                 fadeOut(animationSpec = tween(420)))
                     }
                 },
@@ -160,34 +160,36 @@ fun OnboardingScreen(onFinished: () -> Unit) {
                         onOk = { request(PermissionPages.all[index]) },
                     )
                 } else {
-                    FinishContent()
+                    WelcomeContent(onGetStarted = onFinished)
                 }
             }
 
-            // Pehla style: round dots (active thoda chhoda pill)
-            Row(
-                modifier = Modifier
-                    .align(Alignment.CenterHorizontally)
-                    .padding(top = 20.dp, bottom = 36.dp),
-                horizontalArrangement = Arrangement.spacedBy(8.dp),
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                repeat(pageCount) { i ->
-                    val active = i == pageIndex
-                    val dotWidth by animateDpAsState(
-                        targetValue = if (active) 24.dp else 8.dp,
-                        animationSpec = tween(300),
-                        label = "dotWidth",
-                    )
-                    Box(
-                        modifier = Modifier
-                            .width(dotWidth)
-                            .height(8.dp)
-                            .clip(CircleShape)
-                            .background(
-                                color = if (active) Accent else Accent.copy(alpha = 0.25f)
-                            )
-                    )
+            // Pehla style: round dots (active thoda chhoda pill) — sirf permissions pe
+            if (pageIndex < pageCount) {
+                Row(
+                    modifier = Modifier
+                        .align(Alignment.CenterHorizontally)
+                        .padding(top = 20.dp, bottom = 36.dp),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    repeat(pageCount) { i ->
+                        val active = i == pageIndex
+                        val dotWidth by animateDpAsState(
+                            targetValue = if (active) 24.dp else 8.dp,
+                            animationSpec = tween(300),
+                            label = "dotWidth",
+                        )
+                        Box(
+                            modifier = Modifier
+                                .width(dotWidth)
+                                .height(8.dp)
+                                .clip(CircleShape)
+                                .background(
+                                    color = if (active) Accent else Accent.copy(alpha = 0.25f)
+                                )
+                        )
+                    }
                 }
             }
         }
@@ -234,29 +236,5 @@ private fun PermissionContent(page: PermissionPage, onOk: () -> Unit) {
                 letterSpacing = 0.2.sp,
             )
         }
-    }
-}
-
-@Composable
-private fun FinishContent() {
-    Column(
-        modifier = Modifier
-            .fillMaxWidth()
-            .padding(start = 28.dp, end = 28.dp, bottom = 16.dp),
-        horizontalAlignment = Alignment.Start,
-    ) {
-        Text(
-            text = "You're all set",
-            style = MaterialTheme.typography.headlineMedium,
-            color = TextPrimary,
-            textAlign = TextAlign.Start,
-        )
-        Spacer(modifier = Modifier.height(10.dp))
-        Text(
-            text = "Opening your library…",
-            style = MaterialTheme.typography.bodyMedium,
-            color = TextSecondary,
-            textAlign = TextAlign.Start,
-        )
     }
 }
