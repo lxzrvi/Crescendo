@@ -5,9 +5,17 @@ import android.content.Intent
 import android.net.Uri
 import android.os.PowerManager
 import android.provider.Settings
+import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.core.animateDpAsState
+import androidx.compose.animation.core.tween
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.slideInHorizontally
+import androidx.compose.animation.slideOutHorizontally
+import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -18,10 +26,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.pager.HorizontalPager
-import androidx.compose.foundation.pager.rememberPagerState
-import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
@@ -29,9 +34,12 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
@@ -42,21 +50,16 @@ import com.lxzrvi.crescendo.ui.theme.BorelFamily
 import com.lxzrvi.crescendo.ui.theme.NeonPurple
 import com.lxzrvi.crescendo.ui.theme.TextPrimary
 import com.lxzrvi.crescendo.ui.theme.TextSecondary
-import kotlinx.coroutines.launch
 
 @Composable
 fun OnboardingScreen(onFinished: () -> Unit) {
     val context = LocalContext.current
-    val scope = rememberCoroutineScope()
-    val pagerState = rememberPagerState(pageCount = { PermissionPages.all.size })
+    var pageIndex by remember { mutableStateOf(0) }
+    val pageCount = PermissionPages.all.size
+    val page = PermissionPages.all[pageIndex]
 
     fun advance() {
-        val next = pagerState.currentPage + 1
-        if (next >= PermissionPages.all.size) {
-            onFinished()
-        } else {
-            scope.launch { pagerState.animateScrollToPage(next) }
-        }
+        if (pageIndex + 1 >= pageCount) onFinished() else pageIndex++
     }
 
     // Runtime permission launcher (music / notifications)
@@ -75,10 +78,10 @@ fun OnboardingScreen(onFinished: () -> Unit) {
         if (pm?.isIgnoringBatteryOptimizations(context.packageName) == true) advance()
     }
 
-    fun request(page: PermissionPage) {
-        when (page.kind) {
+    fun request(target: PermissionPage) {
+        when (target.kind) {
             PermissionKind.MUSIC, PermissionKind.NOTIFICATIONS -> {
-                val perms = PermissionPages.runtimePermissions(page.kind)
+                val perms = PermissionPages.runtimePermissions(target.kind)
                 if (perms.isEmpty()) advance() else permissionLauncher.launch(perms.toTypedArray())
             }
             PermissionKind.BACKGROUND -> {
@@ -95,113 +98,128 @@ fun OnboardingScreen(onFinished: () -> Unit) {
         }
     }
 
+    // System back goes to previous permission without sliding the whole screen
+    BackHandler(enabled = pageIndex > 0) { pageIndex-- }
+
     Column(
         modifier = Modifier
             .fillMaxSize()
             .background(AmoledBlack)
     ) {
-        HorizontalPager(
-            state = pagerState,
+        // Static top area: soft moving purple shapes + Borel wordmark
+        Box(
             modifier = Modifier
                 .weight(1f)
-                .fillMaxWidth(),
-        ) { index ->
-            val page = PermissionPages.all[index]
-            Box(modifier = Modifier.fillMaxSize()) {
+                .fillMaxWidth()
+        ) {
+            AnimatedPurpleBlobs(
+                modifier = Modifier
+                    .align(Alignment.TopStart)
+                    .fillMaxWidth()
+                    .height(380.dp)
+            )
 
-                // Top: soft moving purple shapes, fully blurred
-                AnimatedPurpleBlobs(
-                    modifier = Modifier
-                        .align(Alignment.TopStart)
-                        .fillMaxWidth()
-                        .height(400.dp)
-                )
-
-                // Center: big Borel wordmark
-                Text(
-                    text = "Crescendo",
-                    fontFamily = BorelFamily,
-                    fontSize = 72.sp,
-                    color = TextPrimary,
-                    textAlign = TextAlign.Center,
-                    modifier = Modifier.align(Alignment.Center),
-                )
-
-                // Bottom: detail + OK button
-                Column(
-                    modifier = Modifier
-                        .align(Alignment.BottomCenter)
-                        .fillMaxWidth()
-                        .padding(start = 28.dp, end = 28.dp, bottom = 28.dp),
-                    horizontalAlignment = Alignment.CenterHorizontally,
-                ) {
-                    Text(
-                        text = page.title,
-                        style = MaterialTheme.typography.headlineMedium,
-                        color = TextPrimary,
-                        textAlign = TextAlign.Center,
-                    )
-                    Spacer(modifier = Modifier.height(12.dp))
-                    Text(
-                        text = page.detail,
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = TextSecondary,
-                        textAlign = TextAlign.Center,
-                    )
-                    Spacer(modifier = Modifier.height(24.dp))
-                    Button(
-                        onClick = { request(page) },
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .height(56.dp),
-                        shape = RoundedCornerShape(28.dp),
-                        colors = ButtonDefaults.buttonColors(
-                            containerColor = NeonPurple,
-                            contentColor = AmoledBlack,
-                        ),
-                    ) {
-                        Text(
-                            text = page.actionLabel,
-                            fontWeight = FontWeight.SemiBold,
-                            fontSize = 17.sp,
-                            letterSpacing = 1.2.sp,
-                        )
-                    }
-                }
-            }
+            Text(
+                text = "Crescendo",
+                fontFamily = BorelFamily,
+                fontSize = 72.sp,
+                color = TextPrimary,
+                textAlign = TextAlign.Center,
+                modifier = Modifier.align(Alignment.Center),
+            )
         }
 
-        IndicatorDots(
-            count = PermissionPages.all.size,
-            current = pagerState.currentPage,
+        // Only this bottom content slides left/right between permissions
+        AnimatedContent(
+            targetState = pageIndex,
+            modifier = Modifier.fillMaxWidth(),
+            transitionSpec = {
+                if (targetState > initialState) {
+                    (slideInHorizontally(animationSpec = tween(420)) { it } +
+                        fadeIn(animationSpec = tween(420))) togetherWith
+                        (slideOutHorizontally(animationSpec = tween(420)) { -it } +
+                            fadeOut(animationSpec = tween(420)))
+                } else {
+                    (slideInHorizontally(animationSpec = tween(420)) { -it } +
+                        fadeIn(animationSpec = tween(420))) togetherWith
+                        (slideOutHorizontally(animationSpec = tween(420)) { it } +
+                            fadeOut(animationSpec = tween(420)))
+                }
+            },
+            label = "permissionContent",
+        ) { index ->
+            PermissionContent(
+                page = PermissionPages.all[index],
+                onOk = { request(PermissionPages.all[index]) },
+            )
+        }
+
+        // Square indicator, small and low
+        Row(
             modifier = Modifier
                 .align(Alignment.CenterHorizontally)
-                .padding(bottom = 36.dp),
-        )
+                .padding(top = 20.dp, bottom = 40.dp),
+            horizontalArrangement = Arrangement.spacedBy(10.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            repeat(pageCount) { i ->
+                val active = i == pageIndex
+                val dotSize by animateDpAsState(
+                    targetValue = if (active) 10.dp else 7.dp,
+                    animationSpec = tween(300),
+                    label = "dotSize",
+                )
+                Box(
+                    modifier = Modifier
+                        .size(dotSize)
+                        .clip(RoundedCornerShape(3.dp))
+                        .background(
+                            color = if (active) NeonPurple else NeonPurple.copy(alpha = 0.25f)
+                        )
+                )
+            }
+        }
     }
 }
 
 @Composable
-private fun IndicatorDots(count: Int, current: Int, modifier: Modifier = Modifier) {
-    Row(
-        modifier = modifier,
-        horizontalArrangement = Arrangement.spacedBy(8.dp),
-        verticalAlignment = Alignment.CenterVertically,
+private fun PermissionContent(page: PermissionPage, onOk: () -> Unit) {
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(start = 28.dp, end = 28.dp, bottom = 24.dp),
+        horizontalAlignment = Alignment.Start,
     ) {
-        repeat(count) { i ->
-            val active = i == current
-            val width by animateDpAsState(
-                targetValue = if (active) 24.dp else 8.dp,
-                label = "dotWidth",
-            )
-            Box(
-                modifier = Modifier
-                    .width(width)
-                    .height(8.dp)
-                    .background(
-                        color = if (active) NeonPurple else NeonPurple.copy(alpha = 0.25f),
-                        shape = CircleShape,
-                    )
+        Text(
+            text = page.title,
+            style = MaterialTheme.typography.headlineMedium,
+            color = TextPrimary,
+            textAlign = TextAlign.Start,
+        )
+        Spacer(modifier = Modifier.height(12.dp))
+        Text(
+            text = page.detail,
+            style = MaterialTheme.typography.bodyMedium,
+            color = TextSecondary,
+            textAlign = TextAlign.Start,
+        )
+        Spacer(modifier = Modifier.height(20.dp))
+        Button(
+            onClick = onOk,
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(52.dp),
+            shape = RoundedCornerShape(26.dp),
+            colors = ButtonDefaults.buttonColors(
+                containerColor = NeonPurple,
+                contentColor = AmoledBlack,
+            ),
+        ) {
+            Text(
+                text = page.actionLabel,
+                fontWeight = FontWeight.SemiBold,
+                fontSize = 16.sp,
+                letterSpacing = 1.sp,
             )
         }
     }

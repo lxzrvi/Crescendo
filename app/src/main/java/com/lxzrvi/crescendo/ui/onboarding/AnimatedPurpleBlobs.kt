@@ -56,7 +56,7 @@ fun AnimatedPurpleBlobs(modifier: Modifier = Modifier) {
         initialValue = 0f,
         targetValue = 1f,
         animationSpec = infiniteRepeatable(
-            animation = tween(durationMillis = 16000, easing = LinearEasing),
+            animation = tween(durationMillis = 42000, easing = LinearEasing),
             repeatMode = RepeatMode.Restart,
         ),
         label = "blobProgress",
