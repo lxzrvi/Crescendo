@@ -70,8 +70,10 @@ fun LockIcon(modifier: Modifier = Modifier, tint: Color = Color.White) {
             lineTo(w * 0.32f, h * 0.34f)
             arcTo(
                 rect = androidx.compose.ui.geometry.Rect(
-                    center = Offset(w * 0.5f, h * 0.34f),
-                    radius = androidx.compose.ui.geometry.Radius(w * 0.18f, h * 0.18f),
+                    left = w * 0.32f,
+                    top = h * 0.34f - h * 0.18f,
+                    right = w * 0.68f,
+                    bottom = h * 0.34f + h * 0.18f,
                 ),
                 startAngleDegrees = 180f,
                 sweepAngleDegrees = 180f,
