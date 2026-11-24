@@ -167,3 +167,23 @@ fun ArrowRightIcon(modifier: Modifier = Modifier, tint: Color = Color.White) {
         )
     }
 }
+
+/** Bell — notifications title ke liye. */
+@Composable
+fun BellIcon(modifier: Modifier = Modifier, tint: Color = Color.White) {
+    Canvas(modifier) {
+        val w = size.width
+        val h = size.height
+        val body = Path().apply {
+            moveTo(w * 0.16f, h * 0.74f)
+            lineTo(w * 0.84f, h * 0.74f)
+            cubicTo(w * 0.70f, h * 0.64f, w * 0.72f, h * 0.52f, w * 0.72f, h * 0.42f)
+            cubicTo(w * 0.72f, h * 0.24f, w * 0.62f, h * 0.12f, w * 0.50f, h * 0.12f)
+            cubicTo(w * 0.38f, h * 0.12f, w * 0.28f, h * 0.24f, w * 0.28f, h * 0.42f)
+            cubicTo(w * 0.28f, h * 0.52f, w * 0.30f, h * 0.64f, w * 0.16f, h * 0.74f)
+            close()
+        }
+        drawPath(path = body, color = tint)
+        drawCircle(color = tint, radius = w * 0.11f, center = Offset(w * 0.5f, h * 0.87f))
+    }
+}

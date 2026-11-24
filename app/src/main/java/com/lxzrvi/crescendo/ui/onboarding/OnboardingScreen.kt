@@ -17,16 +17,17 @@ import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
-import androidx.compose.animation.scaleIn
 import androidx.compose.animation.slideInHorizontally
 import androidx.compose.animation.slideInVertically
 import androidx.compose.animation.slideOutHorizontally
 import androidx.compose.animation.slideOutVertically
 import androidx.compose.animation.togetherWith
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
@@ -40,8 +41,8 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -51,22 +52,30 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.graphicsLayer
-import androidx.compose.ui.platform.LocalConfiguration
+import androidx.compose.ui.graphics.lerp
+import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.core.content.ContextCompat
+import com.lxzrvi.crescendo.ui.components.BellIcon
 import com.lxzrvi.crescendo.ui.components.CrescendoLoader
+import com.lxzrvi.crescendo.ui.components.MusicNoteIcon
 import com.lxzrvi.crescendo.ui.theme.Accent
 import com.lxzrvi.crescendo.ui.theme.AmoledBlack
 import com.lxzrvi.crescendo.ui.theme.BorelFamily
 import com.lxzrvi.crescendo.ui.theme.TextPrimary
 import com.lxzrvi.crescendo.ui.theme.TextSecondary
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
+
+// Welcome ka mark (~38dp) / loader (88dp)
+private const val MARK_START_SCALE = 38f / 88f
 
 @Composable
 fun OnboardingScreen(onFinished: () -> Unit) {
@@ -75,11 +84,13 @@ fun OnboardingScreen(onFinished: () -> Unit) {
     var finishing by remember { mutableStateOf(false) }
     val pageCount = PermissionPages.all.size
 
+    var rootSize by remember { mutableStateOf(IntSize.Zero) }
+    var markCenter by remember { mutableStateOf<Offset?>(null) } // welcome icon ki position
+
     fun advance() {
         pageIndex++
     }
 
-    // Runtime permission launcher (music / notifications)
     val permissionLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.RequestMultiplePermissions()
     ) { result ->
@@ -87,8 +98,6 @@ fun OnboardingScreen(onFinished: () -> Unit) {
         if (granted) advance()
     }
 
-    // Optional background playback (battery optimization exemption).
-    // Sirf tab advance karein jab music already allowed ho.
     val batteryLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.StartActivityForResult()
     ) {
@@ -101,10 +110,8 @@ fun OnboardingScreen(onFinished: () -> Unit) {
     }
 
     fun request(target: PermissionPage) {
-        if (target.kind == PermissionKind.MUSIC || target.kind == PermissionKind.NOTIFICATIONS) {
-            val perms = PermissionPages.runtimePermissions(target.kind)
-            if (perms.isEmpty()) advance() else permissionLauncher.launch(perms.toTypedArray())
-        }
+        val perms = PermissionPages.runtimePermissions(target.kind)
+        if (perms.isEmpty()) advance() else permissionLauncher.launch(perms.toTypedArray())
     }
 
     fun requestOptionalBackground() {
@@ -118,109 +125,125 @@ fun OnboardingScreen(onFinished: () -> Unit) {
         }
     }
 
-    // System back goes to previous permission
     BackHandler(enabled = pageIndex > 0 && !finishing) { pageIndex-- }
 
-    // Background gradient bottom se upar travel karke settle hota hai
-    val screenHPx = with(LocalDensity.current) { LocalConfiguration.current.screenHeightDp.dp.toPx() }
-    val bgTravel = remember { Animatable(1f) }
+    // ---- Background: har forward step (Allow/Skip/welcome) pe screen ke neeche se upar tak poora travel ----
+    val bgTravel = remember { Animatable(1f) }          // 0 = screen ke neeche, 1 = apni jagah
+    val prevIndex = remember { intArrayOf(0) }
     LaunchedEffect(pageIndex) {
-        if (pageIndex >= pageCount) {
+        if (pageIndex > prevIndex[0]) {
             bgTravel.snapTo(0f)
             bgTravel.animateTo(1f, tween(durationMillis = 1000, easing = FastOutSlowInEasing))
         }
+        prevIndex[0] = pageIndex
     }
 
-    // Get Started: content fade out, icon center me, phir home
+    // ---- Let's get started: bg neeche slide + fade, icon center me aake loader ----
+    val exit = remember { Animatable(0f) }        // bg vanish
+    val loaderIn = remember { Animatable(0f) }    // icon -> center
     LaunchedEffect(finishing) {
         if (finishing) {
-            delay(1100)
+            launch { exit.animateTo(1f, tween(900, easing = FastOutSlowInEasing)) }
+            launch { loaderIn.animateTo(1f, tween(800, easing = FastOutSlowInEasing)) }
+            delay(2400) // slide (0.8s) + loading animation (~1.6s)
             onFinished()
         }
     }
 
-    Box(modifier = Modifier.fillMaxSize()) {
+    Box(
+        modifier = Modifier
+            .fillMaxSize()
+            .background(AmoledBlack)
+            .onSizeChanged { rootSize = it },
+    ) {
 
         GradientBlobBackground(
             modifier = Modifier
                 .fillMaxSize()
                 .graphicsLayer {
-                    translationY = (bgTravel.value - 1f) * screenHPx * 0.6f
+                    val h = rootSize.height.toFloat()
+                    // (1 - bgTravel): neeche se upar | exit: upar se neeche
+                    translationY = ((1f - bgTravel.value) + exit.value) * h
+                    alpha = 1f - exit.value
                 }
         )
 
-        // Main onboarding flow
         AnimatedVisibility(
             visible = !finishing,
-            exit = fadeOut(tween(450)),
+            exit = fadeOut(tween(300)),
             modifier = Modifier.fillMaxSize(),
         ) {
+            // Outer: permission stage <-> welcome
             AnimatedContent(
-                targetState = pageIndex,
+                targetState = pageIndex >= pageCount,
                 modifier = Modifier.fillMaxSize(),
                 transitionSpec = {
-                    when {
-                        // Last permission -> welcome: content upar slide karke bahar,
-                        // welcome neeche se upar aata hai (screen ke top pe set)
-                        targetState >= pageCount && targetState != initialState ->
-                            (slideInVertically(animationSpec = tween(600)) { it } +
-                                fadeIn(animationSpec = tween(600))) togetherWith
-                                (slideOutVertically(animationSpec = tween(450)) { -it } +
-                                    fadeOut(animationSpec = tween(450)))
-                        targetState < initialState ->
-                            (slideInHorizontally(animationSpec = tween(420)) { -it } +
-                                fadeIn(animationSpec = tween(420))) togetherWith
-                                (slideOutHorizontally(animationSpec = tween(420)) { it } +
-                                    fadeOut(animationSpec = tween(420)))
-                        else ->
-                            (slideInHorizontally(animationSpec = tween(420)) { it } +
-                                fadeIn(animationSpec = tween(420))) togetherWith
-                                (slideOutHorizontally(animationSpec = tween(420)) { -it } +
-                                    fadeOut(animationSpec = tween(420)))
+                    if (targetState) {
+                        (slideInVertically(tween(600)) { it } + fadeIn(tween(600))) togetherWith
+                            (slideOutVertically(tween(450)) { -it } + fadeOut(tween(450)))
+                    } else {
+                        (slideInHorizontally(tween(420)) { -it } + fadeIn(tween(420))) togetherWith
+                            (slideOutHorizontally(tween(420)) { it } + fadeOut(tween(420)))
                     }
                 },
-                label = "onboardingContent",
-            ) { index ->
-                if (index < pageCount) {
-                    PermissionStep(
-                        page = PermissionPages.all[index],
-                        onOk = { request(PermissionPages.all[index]) },
-                        onSkip = { advance() },
-                        onOptionalBackground = { requestOptionalBackground() },
-                        pageIndex = index,
-                        pageCount = pageCount,
+                label = "stage",
+            ) { isWelcome ->
+                if (isWelcome) {
+                    WelcomeContent(
+                        onGetStarted = { finishing = true },
+                        onMarkPositioned = { markCenter = it },
                     )
                 } else {
-                    WelcomeContent(onGetStarted = { finishing = true })
+                    PermissionStage(
+                        pageIndex = pageIndex.coerceAtMost(pageCount - 1),
+                        pageCount = pageCount,
+                        onOk = { request(it) },
+                        onSkip = { advance() },
+                        onOptionalBackground = { requestOptionalBackground() },
+                    )
                 }
             }
         }
 
-        // Finish transition: Crescendo comet center me (red accent)
-        AnimatedVisibility(
-            visible = finishing,
-            enter = fadeIn(tween(600)) + scaleIn(tween(600), initialScale = 0.5f),
-            modifier = Modifier.fillMaxSize(),
-        ) {
+        // Welcome ka icon right se center me slide hoke loader ban jata hai
+        if (finishing) {
+            val c = markCenter
+            val start = if (c != null && rootSize != IntSize.Zero)
+                Offset(c.x - rootSize.width / 2f, c.y - rootSize.height / 2f)
+            else Offset.Zero
+
             Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                CrescendoLoader(modifier = Modifier.size(88.dp), color = Accent)
+                CrescendoLoader(
+                    modifier = Modifier
+                        .size(88.dp)
+                        .graphicsLayer {
+                            val t = loaderIn.value
+                            translationX = start.x * (1f - t)
+                            translationY = start.y * (1f - t)
+                            val s = MARK_START_SCALE + (1f - MARK_START_SCALE) * t
+                            scaleX = s
+                            scaleY = s
+                            alpha = (t * 5f).coerceIn(0f, 1f)
+                        },
+                    color = lerp(TextPrimary, Accent, loaderIn.value),
+                )
             }
         }
     }
 }
 
+/** Crescendo wordmark + dots STATIC; sirf neeche ka content (title/detail/buttons) slide hota hai. */
 @Composable
-private fun PermissionStep(
-    page: PermissionPage,
-    onOk: () -> Unit,
-    onSkip: () -> Unit,
-    onOptionalBackground: () -> Unit,
+private fun PermissionStage(
     pageIndex: Int,
     pageCount: Int,
+    onOk: (PermissionPage) -> Unit,
+    onSkip: () -> Unit,
+    onOptionalBackground: () -> Unit,
 ) {
     Column(modifier = Modifier.fillMaxSize()) {
 
-        // Center: Borel wordmark over the blobs (slides nahi karta)
+        // Center wordmark — AnimatedContent ke bahar, isliye slide nahi hota
         Box(
             modifier = Modifier
                 .weight(1f)
@@ -236,18 +259,35 @@ private fun PermissionStep(
             )
         }
 
-        PermissionContent(
-            page = page,
-            onOk = onOk,
-            onSkip = onSkip,
-            onOptionalBackground = onOptionalBackground,
-        )
+        // Sirf ye part slide hoga
+        AnimatedContent(
+            targetState = pageIndex,
+            modifier = Modifier.fillMaxWidth(),
+            transitionSpec = {
+                if (targetState < initialState) {
+                    (slideInHorizontally(tween(420)) { -it } + fadeIn(tween(420))) togetherWith
+                        (slideOutHorizontally(tween(420)) { it } + fadeOut(tween(420)))
+                } else {
+                    (slideInHorizontally(tween(420)) { it } + fadeIn(tween(420))) togetherWith
+                        (slideOutHorizontally(tween(420)) { -it } + fadeOut(tween(420)))
+                }
+            },
+            label = "permissionBottom",
+        ) { index ->
+            val page = PermissionPages.all[index]
+            PermissionContent(
+                page = page,
+                onOk = { onOk(page) },
+                onSkip = onSkip,
+                onOptionalBackground = onOptionalBackground,
+            )
+        }
 
-        // Pehla style: round dots (active thoda chhoda pill)
+        // Dots bhi static (sirf width animate hoti hai)
         Row(
             modifier = Modifier
                 .align(Alignment.CenterHorizontally)
-                .padding(top = 20.dp, bottom = 36.dp),
+                .padding(top = 4.dp, bottom = 36.dp),
             horizontalArrangement = Arrangement.spacedBy(8.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
@@ -263,9 +303,7 @@ private fun PermissionStep(
                         .width(dotWidth)
                         .height(8.dp)
                         .clip(CircleShape)
-                        .background(
-                            color = if (active) Accent else Accent.copy(alpha = 0.25f)
-                        )
+                        .background(if (active) Accent else Accent.copy(alpha = 0.25f))
                 )
             }
         }
@@ -285,61 +323,96 @@ private fun PermissionContent(
             .padding(start = 28.dp, end = 28.dp, bottom = 16.dp),
         horizontalAlignment = Alignment.Start,
     ) {
-        Text(
-            text = page.title,
-            style = MaterialTheme.typography.headlineMedium,
-            color = TextPrimary,
-            textAlign = TextAlign.Start,
-        )
+        // Label ke aage icon
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            when (page.kind) {
+                PermissionKind.MUSIC -> MusicNoteIcon(Modifier.size(26.dp), tint = Accent)
+                PermissionKind.NOTIFICATIONS -> BellIcon(Modifier.size(26.dp), tint = Accent)
+            }
+            Spacer(modifier = Modifier.width(10.dp))
+            Text(
+                text = page.title,
+                style = MaterialTheme.typography.headlineMedium,
+                color = TextPrimary,
+            )
+        }
         Spacer(modifier = Modifier.height(10.dp))
         Text(
             text = page.detail,
             style = MaterialTheme.typography.bodyMedium,
             color = TextSecondary,
-            textAlign = TextAlign.Start,
         )
-        Spacer(modifier = Modifier.height(16.dp))
+        Spacer(modifier = Modifier.height(18.dp))
+
+        when (page.kind) {
+            PermissionKind.MUSIC -> ActionRow(
+                primaryLabel = page.actionLabel,
+                onPrimary = onOk,
+                secondaryLabel = "Background Playback",
+                onSecondary = onOptionalBackground,
+            )
+            PermissionKind.NOTIFICATIONS -> ActionRow(
+                primaryLabel = page.actionLabel,
+                onPrimary = onOk,
+                secondaryLabel = "Skip",
+                onSecondary = onSkip,
+            )
+        }
+    }
+}
+
+/** Ek hi row: primary (filled) + secondary (outlined). Dono pages me same height. */
+@Composable
+private fun ActionRow(
+    primaryLabel: String,
+    onPrimary: () -> Unit,
+    secondaryLabel: String,
+    onSecondary: () -> Unit,
+) {
+    Row(
+        modifier = Modifier.fillMaxWidth(),
+        horizontalArrangement = Arrangement.spacedBy(10.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
         Button(
-            onClick = onOk,
+            onClick = onPrimary,
             modifier = Modifier
-                .fillMaxWidth()
+                .weight(1.25f)
                 .height(52.dp),
             shape = RoundedCornerShape(18.dp),
+            contentPadding = PaddingValues(horizontal = 10.dp),
             colors = ButtonDefaults.buttonColors(
                 containerColor = Accent,
                 contentColor = AmoledBlack,
             ),
         ) {
             Text(
-                text = page.actionLabel,
+                text = primaryLabel,
                 fontWeight = FontWeight.SemiBold,
-                fontSize = 16.sp,
-                letterSpacing = 0.2.sp,
+                fontSize = 14.sp,
+                maxLines = 1,
+                textAlign = TextAlign.Center,
             )
         }
 
-        Spacer(modifier = Modifier.height(6.dp))
-
-        // Music page: background playback optional
-        if (page.kind == PermissionKind.MUSIC) {
-            TextButton(onClick = onOptionalBackground) {
-                Text(
-                    text = "Allow background playback (optional)",
-                    fontSize = 13.sp,
-                    color = TextSecondary,
-                )
-            }
-        }
-
-        // Notifications page: skip
-        if (page.kind == PermissionKind.NOTIFICATIONS) {
-            TextButton(onClick = onSkip) {
-                Text(
-                    text = "Skip",
-                    fontSize = 13.sp,
-                    color = TextSecondary,
-                )
-            }
+        OutlinedButton(
+            onClick = onSecondary,
+            modifier = Modifier
+                .weight(1f)
+                .height(52.dp),
+            shape = RoundedCornerShape(18.dp),
+            contentPadding = PaddingValues(horizontal = 10.dp),
+            border = BorderStroke(1.dp, Accent.copy(alpha = 0.6f)),
+            colors = ButtonDefaults.outlinedButtonColors(contentColor = TextPrimary),
+        ) {
+            Text(
+                text = secondaryLabel,
+                fontWeight = FontWeight.Medium,
+                fontSize = 13.sp,
+                lineHeight = 16.sp,
+                maxLines = 2,
+                textAlign = TextAlign.Center,
+            )
         }
     }
 }

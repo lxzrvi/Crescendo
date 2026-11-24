@@ -22,7 +22,7 @@ object PermissionPages {
         PermissionPage(
             kind = PermissionKind.MUSIC,
             title = "Music Library",
-            detail = "Allow Crescendo to read the music stored on your device so we can build your library. Background playback is optional — you can allow it below.",
+            detail = "Allow Crescendo to read the music stored on your device so we can build your library. You can also allow background playback so music keeps playing while the app is closed.",
             actionLabel = "Allow Music Access",
         ),
         PermissionPage(

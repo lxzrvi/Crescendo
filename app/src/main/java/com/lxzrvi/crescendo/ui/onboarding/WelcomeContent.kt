@@ -3,7 +3,11 @@ package com.lxzrvi.crescendo.ui.onboarding
 import android.content.ActivityNotFoundException
 import android.content.Intent
 import android.net.Uri
+import androidx.compose.foundation.background
+import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -15,16 +19,21 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.HorizontalDivider
-import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.layout.boundsInRoot
+import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
@@ -42,17 +51,15 @@ import com.lxzrvi.crescendo.ui.theme.TextSecondary
 
 private const val REPO_URL = "https://github.com/lxzrvi/Crescendo"
 
-/**
- * Post-permission welcome/info page: brand story with vector icons,
- * privacy note, GitHub support pill and a pinned get-started button.
- */
 @Composable
-fun WelcomeContent(onGetStarted: () -> Unit) {
+fun WelcomeContent(
+    onGetStarted: () -> Unit,
+    onMarkPositioned: (Offset) -> Unit = {},
+) {
     val context = LocalContext.current
 
     Column(modifier = Modifier.fillMaxSize()) {
 
-        // Scrollable brand content (upar, status bar ke neeche)
         Column(
             modifier = Modifier
                 .weight(1f)
@@ -64,34 +71,44 @@ fun WelcomeContent(onGetStarted: () -> Unit) {
         ) {
             Spacer(modifier = Modifier.height(16.dp))
 
-            Row(verticalAlignment = Alignment.Bottom) {
+            // WELCOME bada, TO ka color bhi same (TextPrimary), baseline aligned
+            Row {
                 Text(
                     text = "WELCOME",
-                    fontSize = 26.sp,
+                    fontSize = 38.sp,
                     fontWeight = FontWeight.SemiBold,
                     letterSpacing = 2.sp,
                     color = TextPrimary,
+                    modifier = Modifier.alignByBaseline(),
                 )
-                Spacer(modifier = Modifier.width(8.dp))
+                Spacer(modifier = Modifier.width(10.dp))
                 Text(
                     text = "TO",
-                    fontSize = 14.sp,
-                    fontWeight = FontWeight.Medium,
-                    color = TextSecondary,
+                    fontSize = 20.sp,
+                    fontWeight = FontWeight.SemiBold,
+                    color = TextPrimary,
+                    modifier = Modifier.alignByBaseline(),
                 )
             }
             Spacer(modifier = Modifier.height(6.dp))
-            Row(verticalAlignment = Alignment.CenterVertically) {
+
+            // Crescendo left, icon bilkul right me, text ke vertical center me
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
                 Text(
                     text = "Crescendo",
                     fontFamily = BorelFamily,
-                    fontSize = 40.sp,
+                    fontSize = 44.sp,
                     color = TextPrimary,
                 )
-                Spacer(modifier = Modifier.width(10.dp))
+                Spacer(modifier = Modifier.weight(1f))
                 CrescendoMark(
-                    modifier = Modifier.size(26.dp),
-                    tint = TextPrimary, // off-white
+                    modifier = Modifier
+                        .size(38.dp)
+                        .onGloballyPositioned { onMarkPositioned(it.boundsInRoot().center) },
+                    tint = TextPrimary,
                 )
             }
 
@@ -121,35 +138,18 @@ fun WelcomeContent(onGetStarted: () -> Unit) {
 
             Spacer(modifier = Modifier.height(20.dp))
 
-            OutlinedButton(
+            GithubStarButton(
                 onClick = {
                     try {
                         context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(REPO_URL)))
                     } catch (_: ActivityNotFoundException) {
                     }
-                },
-                modifier = Modifier.height(46.dp),
-                shape = RoundedCornerShape(50), // compact pill
-            ) {
-                Row(
-                    horizontalArrangement = Arrangement.spacedBy(6.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
-                    StarIcon(modifier = Modifier.size(14.dp), tint = Accent)
-                    Text(
-                        text = "STAR ON GITHUB",
-                        fontWeight = FontWeight.Medium,
-                        fontSize = 13.sp,
-                        letterSpacing = 1.sp,
-                        color = Accent,
-                    )
                 }
-            }
+            )
 
             Spacer(modifier = Modifier.height(16.dp))
         }
 
-        // Pinned bottom: get started + footer (screen ke sabse niche)
         Column(
             modifier = Modifier
                 .fillMaxWidth()
@@ -183,25 +183,78 @@ fun WelcomeContent(onGetStarted: () -> Unit) {
 
             Spacer(modifier = Modifier.height(14.dp))
 
-            // Crescendo aur lxzrvi ek hi line pe aligned
+            // Footer: dono texts ki baseline same line pe
             Row(
                 modifier = Modifier.align(Alignment.CenterHorizontally),
                 horizontalArrangement = Arrangement.spacedBy(8.dp),
-                verticalAlignment = Alignment.Bottom,
             ) {
                 Text(
                     text = "Crescendo",
                     fontFamily = BorelFamily,
                     fontSize = 13.sp,
                     color = TextSecondary,
+                    modifier = Modifier.alignByBaseline(),
                 )
                 Text(
                     text = "lxzrvi \u2218 2026",
                     fontSize = 12.sp,
                     color = TextSecondary,
+                    modifier = Modifier.alignByBaseline(),
                 )
             }
         }
+    }
+}
+
+/** Gradient border + tinted fill wala full-width GitHub star button. */
+@Composable
+private fun GithubStarButton(onClick: () -> Unit) {
+    val shape = RoundedCornerShape(18.dp)
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .height(56.dp)
+            .clip(shape)
+            .background(
+                Brush.horizontalGradient(
+                    listOf(Accent.copy(alpha = 0.20f), Accent.copy(alpha = 0.05f))
+                )
+            )
+            .border(
+                width = 1.dp,
+                brush = Brush.horizontalGradient(
+                    listOf(Accent.copy(alpha = 0.85f), Accent.copy(alpha = 0.20f))
+                ),
+                shape = shape,
+            )
+            .clickable(onClick = onClick)
+            .padding(horizontal = 14.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Box(
+            modifier = Modifier
+                .size(34.dp)
+                .clip(CircleShape)
+                .background(Accent.copy(alpha = 0.18f)),
+            contentAlignment = Alignment.Center,
+        ) {
+            StarIcon(modifier = Modifier.size(17.dp), tint = Accent)
+        }
+        Spacer(modifier = Modifier.width(12.dp))
+        Column(modifier = Modifier.weight(1f)) {
+            Text(
+                text = "Star on GitHub",
+                fontSize = 14.sp,
+                fontWeight = FontWeight.SemiBold,
+                color = TextPrimary,
+            )
+            Text(
+                text = "lxzrvi/Crescendo",
+                fontSize = 11.sp,
+                color = TextSecondary,
+            )
+        }
+        ArrowRightIcon(modifier = Modifier.size(16.dp), tint = TextPrimary)
     }
 }
 
