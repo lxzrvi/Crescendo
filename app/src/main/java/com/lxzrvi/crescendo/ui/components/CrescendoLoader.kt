@@ -65,7 +65,7 @@ fun CrescendoLoader(
             val len = measure.length
             val seg = Path()
 
-            val slices = 22
+            val slices = 26
             val tailLen = len * 0.30f
             val sliceLen = tailLen / slices
 
@@ -106,8 +106,8 @@ fun CrescendoLoader(
                         val f = 1f - i / slices.toFloat()
                         val a = f * f
                         val endD = head - i * sliceLen
-                        val startD = endD - sliceLen * 1.2f   // halka overlap, gap na dikhe
-                        slice(startD, endD, a * 0.14f, strokeWidth * 3.2f)  // glow
+                        val startD = endD - sliceLen * 2.4f   // zyada overlap — comet solid, dots nahi
+                        slice(startD, endD, a * 0.14f, strokeWidth * 2.6f)  // glow
                         slice(startD, endD, a, strokeWidth)                 // line
                     }
                 }

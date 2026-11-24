@@ -3,16 +3,17 @@ package com.lxzrvi.crescendo.ui.onboarding
 import android.Manifest
 import android.os.Build
 
-enum class PermissionKind { MUSIC, NOTIFICATIONS, BACKGROUND }
+enum class PermissionKind { MUSIC, NOTIFICATIONS }
 
 /**
- * The three onboarding pages. Each page = one permission a music app needs.
+ * Do hi pages: pehla me music + optional background playback,
+ * doosra me notifications (skip-able).
  */
 data class PermissionPage(
     val kind: PermissionKind,
     val title: String,
     val detail: String,
-    val actionLabel: String = "OK",
+    val actionLabel: String,
 )
 
 object PermissionPages {
@@ -21,7 +22,7 @@ object PermissionPages {
         PermissionPage(
             kind = PermissionKind.MUSIC,
             title = "Music Library",
-            detail = "Allow Crescendo to read the music stored on your device so we can build your library.",
+            detail = "Allow Crescendo to read the music stored on your device so we can build your library. Background playback is optional — you can allow it below.",
             actionLabel = "Allow Music Access",
         ),
         PermissionPage(
@@ -30,15 +31,8 @@ object PermissionPages {
             detail = "Allow notifications so you can control playback and see album art on your lock screen.",
             actionLabel = "Allow Notifications",
         ),
-        PermissionPage(
-            kind = PermissionKind.BACKGROUND,
-            title = "Background Playback",
-            detail = "Allow Crescendo to keep playing your music even when the screen is off.",
-            actionLabel = "Allow Background Playback",
-        ),
     )
 
-    /** Runtime permissions for a page (empty = handled via special intent). */
     fun runtimePermissions(kind: PermissionKind): List<String> = when (kind) {
         PermissionKind.MUSIC ->
             if (Build.VERSION.SDK_INT >= 33) {
@@ -52,6 +46,5 @@ object PermissionPages {
             } else {
                 emptyList() // auto-granted below Android 13
             }
-        PermissionKind.BACKGROUND -> emptyList()
     }
 }

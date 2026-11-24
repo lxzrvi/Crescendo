@@ -1,9 +1,10 @@
 package com.lxzrvi.crescendo.ui.onboarding
 
-import android.content.Context
+import android.Manifest
 import android.content.Intent
+import android.content.pm.PackageManager
 import android.net.Uri
-import android.os.PowerManager
+import android.os.Build
 import android.provider.Settings
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
@@ -40,6 +41,7 @@ import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -57,6 +59,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.core.content.ContextCompat
 import com.lxzrvi.crescendo.ui.components.CrescendoLoader
 import com.lxzrvi.crescendo.ui.theme.Accent
 import com.lxzrvi.crescendo.ui.theme.AmoledBlack
@@ -71,7 +74,6 @@ fun OnboardingScreen(onFinished: () -> Unit) {
     var pageIndex by remember { mutableStateOf(0) }
     var finishing by remember { mutableStateOf(false) }
     val pageCount = PermissionPages.all.size
-    val page = PermissionPages.all.getOrElse(pageIndex) { PermissionPages.all.last() }
 
     fun advance() {
         pageIndex++
@@ -85,38 +87,41 @@ fun OnboardingScreen(onFinished: () -> Unit) {
         if (granted) advance()
     }
 
-    // Special-intent launcher (battery optimization exemption)
+    // Optional background playback (battery optimization exemption).
+    // Sirf tab advance karein jab music already allowed ho.
     val batteryLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.StartActivityForResult()
     ) {
-        val pm = context.getSystemService(Context.POWER_SERVICE) as? PowerManager
-        if (pm?.isIgnoringBatteryOptimizations(context.packageName) == true) advance()
+        val audioPermission =
+            if (Build.VERSION.SDK_INT >= 33) Manifest.permission.READ_MEDIA_AUDIO
+            else Manifest.permission.READ_EXTERNAL_STORAGE
+        val audioGranted = ContextCompat.checkSelfPermission(context, audioPermission) ==
+            PackageManager.PERMISSION_GRANTED
+        if (audioGranted) advance()
     }
 
     fun request(target: PermissionPage) {
-        when (target.kind) {
-            PermissionKind.MUSIC, PermissionKind.NOTIFICATIONS -> {
-                val perms = PermissionPages.runtimePermissions(target.kind)
-                if (perms.isEmpty()) advance() else permissionLauncher.launch(perms.toTypedArray())
-            }
-            PermissionKind.BACKGROUND -> {
-                try {
-                    batteryLauncher.launch(
-                        Intent(Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS).apply {
-                            data = Uri.parse("package:${context.packageName}")
-                        }
-                    )
-                } catch (_: Exception) {
-                    advance()
+        if (target.kind == PermissionKind.MUSIC || target.kind == PermissionKind.NOTIFICATIONS) {
+            val perms = PermissionPages.runtimePermissions(target.kind)
+            if (perms.isEmpty()) advance() else permissionLauncher.launch(perms.toTypedArray())
+        }
+    }
+
+    fun requestOptionalBackground() {
+        try {
+            batteryLauncher.launch(
+                Intent(Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS).apply {
+                    data = Uri.parse("package:${context.packageName}")
                 }
-            }
+            )
+        } catch (_: Exception) {
         }
     }
 
     // System back goes to previous permission
     BackHandler(enabled = pageIndex > 0 && !finishing) { pageIndex-- }
 
-    // Background gradient top se travel karke apni jagah set hota hai
+    // Background gradient bottom se upar travel karke settle hota hai
     val screenHPx = with(LocalDensity.current) { LocalConfiguration.current.screenHeightDp.dp.toPx() }
     val bgTravel = remember { Animatable(1f) }
     LaunchedEffect(pageIndex) {
@@ -126,7 +131,7 @@ fun OnboardingScreen(onFinished: () -> Unit) {
         }
     }
 
-    // Get Started: content fade out, icon center me travel, phir home
+    // Get Started: content fade out, icon center me, phir home
     LaunchedEffect(finishing) {
         if (finishing) {
             delay(1100)
@@ -140,7 +145,7 @@ fun OnboardingScreen(onFinished: () -> Unit) {
             modifier = Modifier
                 .fillMaxSize()
                 .graphicsLayer {
-                    translationY = (1f - bgTravel.value) * screenHPx * 0.6f
+                    translationY = (bgTravel.value - 1f) * screenHPx * 0.6f
                 }
         )
 
@@ -180,6 +185,8 @@ fun OnboardingScreen(onFinished: () -> Unit) {
                     PermissionStep(
                         page = PermissionPages.all[index],
                         onOk = { request(PermissionPages.all[index]) },
+                        onSkip = { advance() },
+                        onOptionalBackground = { requestOptionalBackground() },
                         pageIndex = index,
                         pageCount = pageCount,
                     )
@@ -189,14 +196,14 @@ fun OnboardingScreen(onFinished: () -> Unit) {
             }
         }
 
-        // Finish transition: Crescendo icon center me
+        // Finish transition: Crescendo comet center me (red accent)
         AnimatedVisibility(
             visible = finishing,
             enter = fadeIn(tween(600)) + scaleIn(tween(600), initialScale = 0.5f),
             modifier = Modifier.fillMaxSize(),
         ) {
             Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                CrescendoLoader(modifier = Modifier.size(88.dp))
+                CrescendoLoader(modifier = Modifier.size(88.dp), color = Accent)
             }
         }
     }
@@ -206,15 +213,17 @@ fun OnboardingScreen(onFinished: () -> Unit) {
 private fun PermissionStep(
     page: PermissionPage,
     onOk: () -> Unit,
+    onSkip: () -> Unit,
+    onOptionalBackground: () -> Unit,
     pageIndex: Int,
     pageCount: Int,
 ) {
     Column(modifier = Modifier.fillMaxSize()) {
 
-        // Center: Borel wordmark over the blobs
+        // Center: Borel wordmark over the blobs (slides nahi karta)
         Box(
             modifier = Modifier
-                .height(300.dp)
+                .weight(1f)
                 .fillMaxWidth(),
             contentAlignment = Alignment.Center,
         ) {
@@ -227,7 +236,12 @@ private fun PermissionStep(
             )
         }
 
-        PermissionContent(page = page, onOk = onOk)
+        PermissionContent(
+            page = page,
+            onOk = onOk,
+            onSkip = onSkip,
+            onOptionalBackground = onOptionalBackground,
+        )
 
         // Pehla style: round dots (active thoda chhoda pill)
         Row(
@@ -259,7 +273,12 @@ private fun PermissionStep(
 }
 
 @Composable
-private fun PermissionContent(page: PermissionPage, onOk: () -> Unit) {
+private fun PermissionContent(
+    page: PermissionPage,
+    onOk: () -> Unit,
+    onSkip: () -> Unit,
+    onOptionalBackground: () -> Unit,
+) {
     Column(
         modifier = Modifier
             .fillMaxWidth()
@@ -285,7 +304,7 @@ private fun PermissionContent(page: PermissionPage, onOk: () -> Unit) {
             modifier = Modifier
                 .fillMaxWidth()
                 .height(52.dp),
-            shape = RoundedCornerShape(18.dp), // iOS-style squircle
+            shape = RoundedCornerShape(18.dp),
             colors = ButtonDefaults.buttonColors(
                 containerColor = Accent,
                 contentColor = AmoledBlack,
@@ -297,6 +316,30 @@ private fun PermissionContent(page: PermissionPage, onOk: () -> Unit) {
                 fontSize = 16.sp,
                 letterSpacing = 0.2.sp,
             )
+        }
+
+        Spacer(modifier = Modifier.height(6.dp))
+
+        // Music page: background playback optional
+        if (page.kind == PermissionKind.MUSIC) {
+            TextButton(onClick = onOptionalBackground) {
+                Text(
+                    text = "Allow background playback (optional)",
+                    fontSize = 13.sp,
+                    color = TextSecondary,
+                )
+            }
+        }
+
+        // Notifications page: skip
+        if (page.kind == PermissionKind.NOTIFICATIONS) {
+            TextButton(onClick = onSkip) {
+                Text(
+                    text = "Skip",
+                    fontSize = 13.sp,
+                    color = TextSecondary,
+                )
+            }
         }
     }
 }

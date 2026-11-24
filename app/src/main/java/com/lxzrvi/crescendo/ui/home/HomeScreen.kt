@@ -9,6 +9,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import com.lxzrvi.crescendo.ui.components.CrescendoLoader
+import com.lxzrvi.crescendo.ui.theme.Accent
 import com.lxzrvi.crescendo.ui.theme.AmoledBlack
 
 /** Loader screen — real library UI comes next. */
@@ -20,6 +21,6 @@ fun HomeScreen(modifier: Modifier = Modifier) {
             .background(AmoledBlack),
         contentAlignment = Alignment.Center,
     ) {
-        CrescendoLoader(modifier = Modifier.size(88.dp))
+        CrescendoLoader(modifier = Modifier.size(88.dp), color = Accent)
     }
 }

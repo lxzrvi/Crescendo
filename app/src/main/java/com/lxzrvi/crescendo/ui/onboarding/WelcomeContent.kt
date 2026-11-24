@@ -12,6 +12,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -29,6 +30,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.lxzrvi.crescendo.ui.components.ArrowRightIcon
+import com.lxzrvi.crescendo.ui.components.CrescendoMark
 import com.lxzrvi.crescendo.ui.components.LockIcon
 import com.lxzrvi.crescendo.ui.components.MusicNoteIcon
 import com.lxzrvi.crescendo.ui.components.StarIcon
@@ -50,31 +52,48 @@ fun WelcomeContent(onGetStarted: () -> Unit) {
 
     Column(modifier = Modifier.fillMaxSize()) {
 
-        // Scrollable brand content (upar)
+        // Scrollable brand content (upar, status bar ke neeche)
         Column(
             modifier = Modifier
                 .weight(1f)
                 .fillMaxWidth()
+                .statusBarsPadding()
                 .verticalScroll(rememberScrollState())
                 .padding(start = 24.dp, end = 24.dp),
             horizontalAlignment = Alignment.Start,
         ) {
             Spacer(modifier = Modifier.height(16.dp))
 
-            Text(
-                text = "WELCOME TO CRESCENDO",
-                fontSize = 24.sp,
-                fontWeight = FontWeight.SemiBold,
-                letterSpacing = 2.sp,
-                color = TextPrimary,
-            )
+            Row(verticalAlignment = Alignment.Bottom) {
+                Text(
+                    text = "WELCOME",
+                    fontSize = 26.sp,
+                    fontWeight = FontWeight.SemiBold,
+                    letterSpacing = 2.sp,
+                    color = TextPrimary,
+                )
+                Spacer(modifier = Modifier.width(8.dp))
+                Text(
+                    text = "TO",
+                    fontSize = 14.sp,
+                    fontWeight = FontWeight.Medium,
+                    color = TextSecondary,
+                )
+            }
             Spacer(modifier = Modifier.height(6.dp))
-            Text(
-                text = "Crescendo",
-                fontFamily = BorelFamily,
-                fontSize = 40.sp,
-                color = TextPrimary,
-            )
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text(
+                    text = "Crescendo",
+                    fontFamily = BorelFamily,
+                    fontSize = 40.sp,
+                    color = TextPrimary,
+                )
+                Spacer(modifier = Modifier.width(10.dp))
+                CrescendoMark(
+                    modifier = Modifier.size(26.dp),
+                    tint = TextPrimary, // off-white
+                )
+            }
 
             Spacer(modifier = Modifier.height(28.dp))
 
@@ -109,10 +128,8 @@ fun WelcomeContent(onGetStarted: () -> Unit) {
                     } catch (_: ActivityNotFoundException) {
                     }
                 },
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .height(46.dp),
-                shape = RoundedCornerShape(50), // pill
+                modifier = Modifier.height(46.dp),
+                shape = RoundedCornerShape(50), // compact pill
             ) {
                 Row(
                     horizontalArrangement = Arrangement.spacedBy(6.dp),
@@ -166,10 +183,11 @@ fun WelcomeContent(onGetStarted: () -> Unit) {
 
             Spacer(modifier = Modifier.height(14.dp))
 
+            // Crescendo aur lxzrvi ek hi line pe aligned
             Row(
                 modifier = Modifier.align(Alignment.CenterHorizontally),
                 horizontalArrangement = Arrangement.spacedBy(8.dp),
-                verticalAlignment = Alignment.CenterVertically,
+                verticalAlignment = Alignment.Bottom,
             ) {
                 Text(
                     text = "Crescendo",
