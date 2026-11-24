@@ -22,16 +22,19 @@ object PermissionPages {
             kind = PermissionKind.MUSIC,
             title = "Music Library",
             detail = "Allow Crescendo to read the music stored on your device so we can build your library.",
+            actionLabel = "Allow Music Access",
         ),
         PermissionPage(
             kind = PermissionKind.NOTIFICATIONS,
             title = "Notifications",
             detail = "Allow notifications so you can control playback and see album art on your lock screen.",
+            actionLabel = "Allow Notifications",
         ),
         PermissionPage(
             kind = PermissionKind.BACKGROUND,
             title = "Background Playback",
             detail = "Allow Crescendo to keep playing your music even when the screen is off.",
+            actionLabel = "Allow Background Playback",
         ),
     )
 

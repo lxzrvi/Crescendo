@@ -26,7 +26,8 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
@@ -111,86 +112,83 @@ fun OnboardingScreen(onFinished: () -> Unit) {
         }
     }
 
-    Column(
-        modifier = Modifier
-            .fillMaxSize()
-            .background(AmoledBlack)
-    ) {
-        // Static top area: soft moving shapes + Borel wordmark
-        Box(
-            modifier = Modifier
-                .weight(1f)
-                .fillMaxWidth()
-        ) {
-            AnimatedPurpleBlobs(
+    Box(modifier = Modifier.fillMaxSize()) {
+
+        // Fullscreen soft liquid-glass background
+        GradientBlobBackground(modifier = Modifier.fillMaxSize())
+
+        Column(modifier = Modifier.fillMaxSize()) {
+
+            // Static center: Borel wordmark over the blobs
+            Box(
                 modifier = Modifier
-                    .align(Alignment.TopStart)
-                    .fillMaxWidth()
-                    .height(380.dp)
-            )
-
-            Text(
-                text = "Crescendo",
-                fontFamily = BorelFamily,
-                fontSize = 72.sp,
-                color = TextPrimary,
-                textAlign = TextAlign.Center,
-                modifier = Modifier.align(Alignment.Center),
-            )
-        }
-
-        // Only this bottom content slides left/right between steps
-        AnimatedContent(
-            targetState = pageIndex,
-            modifier = Modifier.fillMaxWidth(),
-            transitionSpec = {
-                if (targetState > initialState) {
-                    (slideInHorizontally(animationSpec = tween(420)) { it } +
-                        fadeIn(animationSpec = tween(420))) togetherWith
-                        (slideOutHorizontally(animationSpec = tween(420)) { -it } +
-                            fadeOut(animationSpec = tween(420)))
-                } else {
-                    (slideInHorizontally(animationSpec = tween(420)) { -it } +
-                        fadeIn(animationSpec = tween(420))) togetherWith
-                    (slideOutHorizontally(animationSpec = tween(420)) { it } +
-                            fadeOut(animationSpec = tween(420)))
-                }
-            },
-            label = "permissionContent",
-        ) { index ->
-            if (index < pageCount) {
-                PermissionContent(
-                    page = PermissionPages.all[index],
-                    onOk = { request(PermissionPages.all[index]) },
+                    .weight(1f)
+                    .fillMaxWidth(),
+                contentAlignment = Alignment.Center,
+            ) {
+                Text(
+                    text = "Crescendo",
+                    fontFamily = BorelFamily,
+                    fontSize = 72.sp,
+                    color = TextPrimary,
+                    textAlign = TextAlign.Center,
                 )
-            } else {
-                FinishContent()
             }
-        }
 
-        // Square indicator, small and low, tight gap with the button
-        Row(
-            modifier = Modifier
-                .align(Alignment.CenterHorizontally)
-                .padding(top = 10.dp, bottom = 26.dp),
-            horizontalArrangement = Arrangement.spacedBy(10.dp),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            repeat(pageCount) { i ->
-                val active = i == pageIndex
-                val dotSize by animateDpAsState(
-                    targetValue = if (active) 9.dp else 6.dp,
-                    animationSpec = tween(300),
-                    label = "dotSize",
-                )
-                Box(
-                    modifier = Modifier
-                        .size(dotSize)
-                        .clip(RoundedCornerShape(2.dp))
-                        .background(
-                            color = if (active) Accent else Accent.copy(alpha = 0.25f)
-                        )
-                )
+            // Only this bottom content slides left/right between steps
+            AnimatedContent(
+                targetState = pageIndex,
+                modifier = Modifier.fillMaxWidth(),
+                transitionSpec = {
+                    if (targetState > initialState) {
+                        (slideInHorizontally(animationSpec = tween(420)) { it } +
+                            fadeIn(animationSpec = tween(420))) togetherWith
+                            (slideOutHorizontally(animationSpec = tween(420)) { -it } +
+                                fadeOut(animationSpec = tween(420)))
+                    } else {
+                        (slideInHorizontally(animationSpec = tween(420)) { -it } +
+                            fadeIn(animationSpec = tween(420))) togetherWith
+                        (slideOutHorizontally(animationSpec = tween(420)) { it } +
+                                fadeOut(animationSpec = tween(420)))
+                    }
+                },
+                label = "permissionContent",
+            ) { index ->
+                if (index < pageCount) {
+                    PermissionContent(
+                        page = PermissionPages.all[index],
+                        onOk = { request(PermissionPages.all[index]) },
+                    )
+                } else {
+                    FinishContent()
+                }
+            }
+
+            // Pehla style: round dots (active thoda chhoda pill)
+            Row(
+                modifier = Modifier
+                    .align(Alignment.CenterHorizontally)
+                    .padding(top = 20.dp, bottom = 36.dp),
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                repeat(pageCount) { i ->
+                    val active = i == pageIndex
+                    val dotWidth by animateDpAsState(
+                        targetValue = if (active) 24.dp else 8.dp,
+                        animationSpec = tween(300),
+                        label = "dotWidth",
+                    )
+                    Box(
+                        modifier = Modifier
+                            .width(dotWidth)
+                            .height(8.dp)
+                            .clip(CircleShape)
+                            .background(
+                                color = if (active) Accent else Accent.copy(alpha = 0.25f)
+                            )
+                    )
+                }
             }
         }
     }
@@ -201,7 +199,7 @@ private fun PermissionContent(page: PermissionPage, onOk: () -> Unit) {
     Column(
         modifier = Modifier
             .fillMaxWidth()
-            .padding(start = 28.dp, end = 28.dp, bottom = 12.dp),
+            .padding(start = 28.dp, end = 28.dp, bottom = 16.dp),
         horizontalAlignment = Alignment.Start,
     ) {
         Text(
@@ -223,7 +221,7 @@ private fun PermissionContent(page: PermissionPage, onOk: () -> Unit) {
             modifier = Modifier
                 .fillMaxWidth()
                 .height(52.dp),
-            shape = RoundedCornerShape(4.dp),
+            shape = RoundedCornerShape(18.dp), // iOS-style squircle — na square, na pill
             colors = ButtonDefaults.buttonColors(
                 containerColor = Accent,
                 contentColor = AmoledBlack,
@@ -233,7 +231,7 @@ private fun PermissionContent(page: PermissionPage, onOk: () -> Unit) {
                 text = page.actionLabel,
                 fontWeight = FontWeight.SemiBold,
                 fontSize = 16.sp,
-                letterSpacing = 1.sp,
+                letterSpacing = 0.2.sp,
             )
         }
     }
@@ -244,7 +242,7 @@ private fun FinishContent() {
     Column(
         modifier = Modifier
             .fillMaxWidth()
-            .padding(start = 28.dp, end = 28.dp, bottom = 12.dp),
+            .padding(start = 28.dp, end = 28.dp, bottom = 16.dp),
         horizontalAlignment = Alignment.Start,
     ) {
         Text(
