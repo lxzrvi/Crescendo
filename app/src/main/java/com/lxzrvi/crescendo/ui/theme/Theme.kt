@@ -1,12 +1,15 @@
 package com.lxzrvi.crescendo.ui.theme
 
+import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.material3.LocalTextStyle
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.darkColorScheme
+import androidx.compose.material3.lightColorScheme
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.ui.graphics.Color
 
-private val CrescendoColors = darkColorScheme(
+private val DarkCrescendoColors = darkColorScheme(
     primary = Accent,
     onPrimary = AmoledBlack,
     secondary = RedSoft,
@@ -15,18 +18,35 @@ private val CrescendoColors = darkColorScheme(
     onBackground = TextPrimary,
     surface = InkBlack,
     onSurface = TextPrimary,
-    surfaceVariant = InkBlack,
+    surfaceVariant = DarkSecondarySurface,
     onSurfaceVariant = TextSecondary,
 )
 
+private val LightCrescendoColors = lightColorScheme(
+    primary = LightAccent,
+    onPrimary = Color.White,
+    secondary = LightAccent,
+    onSecondary = Color.White,
+    background = LightBackground,
+    onBackground = LightPrimaryText,
+    surface = LightSurface,
+    onSurface = LightPrimaryText,
+    surfaceVariant = LightSecondarySurface,
+    onSurfaceVariant = LightSecondaryText,
+)
+
 @Composable
-fun CrescendoTheme(content: @Composable () -> Unit) {
+fun CrescendoTheme(
+    darkTheme: Boolean = isSystemInDarkTheme(),
+    content: @Composable () -> Unit,
+) {
+    val colors = if (darkTheme) DarkCrescendoColors else LightCrescendoColors
     MaterialTheme(
-        colorScheme = CrescendoColors,
+        colorScheme = colors,
         typography = AppTypography,
     ) {
         CompositionLocalProvider(
-            LocalTextStyle provides DefaultAppTextStyle,
+            LocalTextStyle provides DefaultAppTextStyle.copy(color = colors.onBackground),
             content = content,
         )
     }

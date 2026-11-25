@@ -2,17 +2,22 @@ package com.lxzrvi.crescendo.ui.theme
 
 import androidx.compose.ui.graphics.Color
 
+// Dark mode keeps the AMOLED black and neon red identity.
 val AmoledBlack = Color(0xFF000000)
 val InkBlack = Color(0xFF0A0612)
-
-// Main accent: red (with white mixed into the background shapes)
 val NeonRed = Color(0xFFFF3B30)
 val RedDeep = Color(0xFFDC2626)
 val RedSoft = Color(0xFFF87171)
 val Blush = Color(0xFFFDA4AF)
-
 val TextPrimary = Color(0xFFF5F3FF)
-val TextSecondary = Color(0xFFC9BFD6)
-
-// Aliases used across UI so the accent color lives in one place
+val TextSecondary = Color(0xFFBDBDC3)
+val DarkSecondarySurface = Color(0xFF25191C)
 val Accent = NeonRed
+
+// Light mode retains the red identity with readable dark text and soft surfaces.
+val LightBackground = Color(0xFFFFFBFA)
+val LightSurface = Color(0xFFFFF5F3)
+val LightPrimaryText = Color(0xFF211B1B)
+val LightSecondaryText = Color(0xFF625F62)
+val LightAccent = Color(0xFFB72B23)
+val LightSecondarySurface = Color(0xFFFCE4E1)

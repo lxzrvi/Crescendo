@@ -16,12 +16,11 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.graphicsLayer
 import com.lxzrvi.crescendo.ui.onboarding.GradientBlobBackground
-import com.lxzrvi.crescendo.ui.theme.AmoledBlack
-import com.lxzrvi.crescendo.ui.theme.TextPrimary
 
 /** Simple Home placeholder after the onboarding loader finishes. */
 @Composable
 fun HomeScreen(gradientPhase: State<Float>, modifier: Modifier = Modifier) {
+    val colors = MaterialTheme.colorScheme
     val fadeIn = remember { Animatable(0f) }
     LaunchedEffect(Unit) {
         fadeIn.animateTo(1f, tween(500, easing = FastOutSlowInEasing))
@@ -30,7 +29,7 @@ fun HomeScreen(gradientPhase: State<Float>, modifier: Modifier = Modifier) {
     Box(
         modifier = modifier
             .fillMaxSize()
-            .background(AmoledBlack),
+            .background(colors.background),
         contentAlignment = Alignment.Center,
     ) {
         GradientBlobBackground(
@@ -40,7 +39,7 @@ fun HomeScreen(gradientPhase: State<Float>, modifier: Modifier = Modifier) {
         Text(
             text = "Home",
             style = MaterialTheme.typography.headlineMedium,
-            color = TextPrimary,
+            color = colors.onBackground,
             modifier = Modifier.graphicsLayer { alpha = fadeIn.value },
         )
     }

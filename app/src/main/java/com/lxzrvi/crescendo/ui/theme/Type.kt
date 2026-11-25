@@ -8,10 +8,10 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.sp
 import com.lxzrvi.crescendo.R
 
-/** Borel — used for the big "Crescendo" wordmark (res/font/borel.ttf). */
+/** Borel is reserved for the Crescendo wordmark. */
 val BorelFamily = FontFamily(Font(R.font.borel))
 
-/** SF Pro Display — primary app font. */
+/** SF Pro Display is the app-wide typeface. */
 val SfProFamily = FontFamily(
     Font(R.font.sf_pro_display_regular, FontWeight.Normal),
     Font(R.font.sf_pro_display_medium, FontWeight.Medium),
@@ -21,16 +21,23 @@ val SfProFamily = FontFamily(
 
 val AppTypography = Typography().let { base ->
     base.copy(
+        displayLarge = base.displayLarge.copy(fontFamily = SfProFamily),
+        displayMedium = base.displayMedium.copy(fontFamily = SfProFamily),
+        displaySmall = base.displaySmall.copy(fontFamily = SfProFamily),
+        headlineLarge = base.headlineLarge.copy(fontFamily = SfProFamily),
         headlineMedium = base.headlineMedium.copy(
             fontFamily = SfProFamily,
             fontWeight = FontWeight.SemiBold,
             letterSpacing = (-0.5).sp,
         ),
+        headlineSmall = base.headlineSmall.copy(fontFamily = SfProFamily),
         titleLarge = base.titleLarge.copy(
             fontFamily = SfProFamily,
             fontWeight = FontWeight.SemiBold,
             letterSpacing = 0.sp,
         ),
+        titleMedium = base.titleMedium.copy(fontFamily = SfProFamily),
+        titleSmall = base.titleSmall.copy(fontFamily = SfProFamily),
         bodyLarge = base.bodyLarge.copy(
             fontFamily = SfProFamily,
             fontWeight = FontWeight.Normal,
@@ -41,16 +48,16 @@ val AppTypography = Typography().let { base ->
             fontWeight = FontWeight.Normal,
             letterSpacing = 0.3.sp,
         ),
+        bodySmall = base.bodySmall.copy(fontFamily = SfProFamily),
         labelLarge = base.labelLarge.copy(
             fontFamily = SfProFamily,
             fontWeight = FontWeight.Medium,
             letterSpacing = 1.2.sp,
         ),
+        labelMedium = base.labelMedium.copy(fontFamily = SfProFamily),
+        labelSmall = base.labelSmall.copy(fontFamily = SfProFamily),
     )
 }
 
-/** Default text style used everywhere so every component inherits SF Pro. */
-val DefaultAppTextStyle = TextStyle(
-    fontFamily = SfProFamily,
-    color = TextPrimary,
-)
+/** Default text style for components that do not specify a typography role. */
+val DefaultAppTextStyle = TextStyle(fontFamily = SfProFamily)
