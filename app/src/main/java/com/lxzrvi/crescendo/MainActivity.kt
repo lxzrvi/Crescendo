@@ -11,6 +11,7 @@ import androidx.compose.runtime.setValue
 import com.lxzrvi.crescendo.data.OnboardingPrefs
 import com.lxzrvi.crescendo.ui.home.HomeScreen
 import com.lxzrvi.crescendo.ui.onboarding.OnboardingScreen
+import com.lxzrvi.crescendo.ui.onboarding.rememberGradientPhase
 import com.lxzrvi.crescendo.ui.theme.CrescendoTheme
 
 class MainActivity : ComponentActivity() {
@@ -23,11 +24,13 @@ class MainActivity : ComponentActivity() {
         setContent {
             CrescendoTheme {
                 var onboardingComplete by remember { mutableStateOf(prefs.isOnboardingComplete()) }
+                val gradientPhase = rememberGradientPhase()
 
                 if (onboardingComplete) {
-                    HomeScreen()
+                    HomeScreen(gradientPhase = gradientPhase)
                 } else {
                     OnboardingScreen(
+                        gradientPhase = gradientPhase,
                         onFinished = {
                             prefs.setOnboardingComplete(true)
                             onboardingComplete = true

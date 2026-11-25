@@ -26,6 +26,7 @@ import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
@@ -34,6 +35,8 @@ import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -48,6 +51,7 @@ import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.State
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -61,8 +65,11 @@ import androidx.compose.ui.graphics.lerp
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.rememberTextMeasurer
 import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.unit.Constraints
 import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -75,15 +82,18 @@ import com.lxzrvi.crescendo.ui.theme.AmoledBlack
 import com.lxzrvi.crescendo.ui.theme.BorelFamily
 import com.lxzrvi.crescendo.ui.theme.TextPrimary
 import com.lxzrvi.crescendo.ui.theme.TextSecondary
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
+
+internal const val ONBOARDING_ACTION_RADIUS_DP = 15f
 
 // Keep the loader's starting size in sync with the larger welcome mark.
 private const val LOADER_SIZE_DP = 88f
 private const val MARK_START_SCALE = WELCOME_MARK_SIZE_DP / LOADER_SIZE_DP
 
 @Composable
-fun OnboardingScreen(onFinished: () -> Unit) {
+fun OnboardingScreen(gradientPhase: State<Float>, onFinished: () -> Unit) {
     val context = LocalContext.current
     var pageIndex by remember { mutableStateOf(0) }
     var finishing by remember { mutableStateOf(false) }
@@ -138,22 +148,33 @@ fun OnboardingScreen(onFinished: () -> Unit) {
     LaunchedEffect(showWelcome) {
         bgPosition.animateTo(
             targetValue = if (showWelcome) 1f else 0f,
-            animationSpec = tween(1600, easing = FastOutSlowInEasing),
+            animationSpec = tween(1300, easing = FastOutSlowInEasing),
         )
     }
 
-    // Mark -> centered loader; after a short load, zoom and fade before showing Home.
+    // Welcome glow exits down as the mark enters; Home glow later arrives from above.
     val exit = remember { Animatable(0f) }
     val loaderIn = remember { Animatable(0f) }
-    val loaderZoom = remember { Animatable(0f) }
-    val loaderFade = remember { Animatable(1f) }
+    val loaderPulse = remember { Animatable(1f) }
+    val loaderDepart = remember { Animatable(0f) }
+    val homeGlow = remember { Animatable(0f) }
+    var revealingHomeGlow by remember { mutableStateOf(false) }
     LaunchedEffect(finishing) {
         if (finishing) {
             launch { exit.animateTo(1f, tween(900, easing = FastOutSlowInEasing)) }
             launch { loaderIn.animateTo(1f, tween(800, easing = FastOutSlowInEasing)) }
-            delay(2400) // 0.8s travel plus a little time to see the loading animation.
-            loaderZoom.animateTo(1f, tween(850, easing = FastOutSlowInEasing))
-            loaderFade.animateTo(0f, tween(350, easing = FastOutSlowInEasing))
+            delay(2400) // Entry plus a moment to see the comet loader.
+
+            // The old glow is invisible; reset its shape before bringing it in from the top.
+            bgPosition.snapTo(0f)
+            revealingHomeGlow = true
+            coroutineScope {
+                launch { homeGlow.animateTo(1f, tween(1300, easing = FastOutSlowInEasing)) }
+                launch {
+                    loaderPulse.animateTo(1.08f, tween(220, easing = FastOutSlowInEasing))
+                    loaderDepart.animateTo(1f, tween(700, easing = FastOutSlowInEasing))
+                }
+            }
             onFinished()
         }
     }
@@ -166,14 +187,19 @@ fun OnboardingScreen(onFinished: () -> Unit) {
     ) {
 
         GradientBlobBackground(
-            position = bgPosition.value,
+            phase = gradientPhase,
+            position = { bgPosition.value },
             modifier = Modifier
                 .fillMaxSize()
                 .graphicsLayer {
                     val h = rootSize.height.toFloat()
-                    // Only the final exit slides the whole background down and fades it.
-                    translationY = exit.value * h
-                    alpha = 1f - exit.value
+                    if (revealingHomeGlow) {
+                        translationY = (homeGlow.value - 1f) * h
+                        alpha = (homeGlow.value * 2f).coerceIn(0f, 1f)
+                    } else {
+                        translationY = exit.value * h
+                        alpha = 1f - exit.value
+                    }
                 }
         )
 
@@ -220,10 +246,7 @@ fun OnboardingScreen(onFinished: () -> Unit) {
             val start = if (c != null && rootSize != IntSize.Zero)
                 Offset(c.x - rootSize.width / 2f, c.y - rootSize.height / 2f)
             else Offset.Zero
-            val loaderSizePx = with(LocalDensity.current) { LOADER_SIZE_DP.dp.toPx() }
-            val fullScreenScale =
-                (maxOf(rootSize.width, rootSize.height).toFloat() / loaderSizePx * 1.12f)
-                    .coerceAtLeast(1f)
+            val liftPx = with(LocalDensity.current) { 20.dp.toPx() }
 
             Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                 CrescendoLoader(
@@ -231,15 +254,14 @@ fun OnboardingScreen(onFinished: () -> Unit) {
                         .size(LOADER_SIZE_DP.dp)
                         .graphicsLayer {
                             val t = loaderIn.value
-                            val zoom = loaderZoom.value
+                            val depart = loaderDepart.value
                             translationX = start.x * (1f - t)
-                            translationY = start.y * (1f - t)
+                            translationY = start.y * (1f - t) - liftPx * depart
                             val entryScale = MARK_START_SCALE + (1f - MARK_START_SCALE) * t
-                            val zoomScale = 1f + (fullScreenScale - 1f) * zoom
-                            scaleX = entryScale * zoomScale
-                            scaleY = entryScale * zoomScale
-                            val entryAlpha = (t * 5f).coerceIn(0f, 1f)
-                            alpha = entryAlpha * loaderFade.value
+                            val settleScale = loaderPulse.value * (1f - 0.16f * depart)
+                            scaleX = entryScale * settleScale
+                            scaleY = entryScale * settleScale
+                            alpha = (t * 5f).coerceIn(0f, 1f) * (1f - depart)
                         },
                     color = lerp(TextPrimary, Accent, loaderIn.value),
                 )
@@ -248,7 +270,7 @@ fun OnboardingScreen(onFinished: () -> Unit) {
     }
 }
 
-/** Crescendo wordmark + dots STATIC; sirf neeche ka content (title/detail/buttons) slide hota hai. */
+/** Wordmark and dots stay still; both permission panels share one aligned slide area. */
 @Composable
 private fun PermissionStage(
     pageIndex: Int,
@@ -257,77 +279,108 @@ private fun PermissionStage(
     onSkip: () -> Unit,
     onOptionalBackground: () -> Unit,
 ) {
-    Column(modifier = Modifier.fillMaxSize()) {
-        // A fixed fraction of the screen keeps the wordmark still even when page text changes height.
-        Box(
-            modifier = Modifier
-                .fillMaxWidth()
-                .fillMaxHeight(0.64f),
-            contentAlignment = Alignment.Center,
-        ) {
-            Text(
-                text = "Crescendo",
-                fontFamily = BorelFamily,
-                fontSize = 72.sp,
-                color = TextPrimary,
-                textAlign = TextAlign.Center,
-            )
+    BoxWithConstraints(modifier = Modifier.fillMaxSize()) {
+        val density = LocalDensity.current
+        val textMeasurer = rememberTextMeasurer()
+        val titleStyle = MaterialTheme.typography.headlineMedium
+        val detailStyle = MaterialTheme.typography.bodyMedium
+        val textWidthPx = (with(density) { maxWidth.roundToPx() - 56.dp.roundToPx() }).coerceAtLeast(1)
+        val titleWidthPx = (textWidthPx - with(density) { 36.dp.roundToPx() }).coerceAtLeast(1)
+        val desiredSlotHeight = remember(textWidthPx, titleWidthPx, density, titleStyle, detailStyle, textMeasurer) {
+            val titleHeight = PermissionPages.all.maxOf { page ->
+                textMeasurer.measure(
+                    text = AnnotatedString(page.title),
+                    style = titleStyle,
+                    constraints = Constraints(maxWidth = titleWidthPx),
+                ).size.height
+            }
+            val detailHeight = PermissionPages.all.maxOf { page ->
+                textMeasurer.measure(
+                    text = AnnotatedString(page.detail),
+                    style = detailStyle,
+                    constraints = Constraints(maxWidth = textWidthPx),
+                ).size.height
+            }
+            val iconHeight = with(density) { 26.dp.roundToPx() }
+            with(density) { (maxOf(titleHeight, iconHeight) + detailHeight).toDp() } +
+                10.dp + 10.dp + 52.dp + 8.dp
         }
 
-        Column(
-            modifier = Modifier
-                .weight(1f)
-                .fillMaxWidth(),
-            verticalArrangement = Arrangement.Bottom,
-        ) {
-            // Both pages use one fixed-height slide area, so they move strictly sideways.
-            AnimatedContent(
-                targetState = pageIndex,
+        Column(modifier = Modifier.fillMaxSize()) {
+            // The wordmark's position does not depend on the page or description height.
+            Box(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .weight(1f),
-                transitionSpec = {
-                    if (targetState < initialState) {
-                        (slideInHorizontally(tween(420)) { -it } + fadeIn(tween(420))) togetherWith
-                            (slideOutHorizontally(tween(420)) { it } + fadeOut(tween(420)))
-                    } else {
-                        (slideInHorizontally(tween(420)) { it } + fadeIn(tween(420))) togetherWith
-                            (slideOutHorizontally(tween(420)) { -it } + fadeOut(tween(420)))
-                    }
-                },
-                label = "permissionBottom",
-            ) { index ->
-                val page = PermissionPages.all[index]
-                PermissionContent(
-                    page = page,
-                    onOk = { onOk(page) },
-                    onSkip = onSkip,
-                    onOptionalBackground = onOptionalBackground,
+                    .fillMaxHeight(0.64f),
+                contentAlignment = Alignment.Center,
+            ) {
+                Text(
+                    text = "Crescendo",
+                    fontFamily = BorelFamily,
+                    fontSize = 72.sp,
+                    color = TextPrimary,
+                    textAlign = TextAlign.Center,
                 )
             }
 
-            // Dots stay anchored; only the active dot's width animates.
-            Row(
+            Column(
                 modifier = Modifier
-                    .align(Alignment.CenterHorizontally)
-                    .padding(top = 4.dp, bottom = 36.dp),
-                horizontalArrangement = Arrangement.spacedBy(8.dp),
-                verticalAlignment = Alignment.CenterVertically,
+                    .weight(1f)
+                    .fillMaxWidth(),
+                verticalArrangement = Arrangement.Bottom,
             ) {
-                repeat(pageCount) { i ->
-                    val active = i == pageIndex
-                    val dotWidth by animateDpAsState(
-                        targetValue = if (active) 24.dp else 8.dp,
-                        animationSpec = tween(300),
-                        label = "dotWidth",
+                // Measure the longest copy once so labels align, buttons stay fixed,
+                // and neither page has an unnecessarily tall empty area.
+                AnimatedContent(
+                    targetState = pageIndex,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .heightIn(max = desiredSlotHeight)
+                        .weight(1f, fill = false),
+                    transitionSpec = {
+                        if (targetState < initialState) {
+                            (slideInHorizontally(tween(420)) { -it } + fadeIn(tween(420))) togetherWith
+                                (slideOutHorizontally(tween(420)) { it } + fadeOut(tween(420)))
+                        } else {
+                            (slideInHorizontally(tween(420)) { it } + fadeIn(tween(420))) togetherWith
+                                (slideOutHorizontally(tween(420)) { -it } + fadeOut(tween(420)))
+                        }
+                    },
+                    label = "permissionBottom",
+                ) { index ->
+                    val page = PermissionPages.all[index]
+                    PermissionContent(
+                        page = page,
+                        onOk = { onOk(page) },
+                        onSkip = onSkip,
+                        onOptionalBackground = onOptionalBackground,
                     )
-                    Box(
-                        modifier = Modifier
-                            .width(dotWidth)
-                            .height(8.dp)
-                            .clip(CircleShape)
-                            .background(if (active) Accent else Accent.copy(alpha = 0.25f))
-                    )
+                }
+
+                // Five dp above the bottom safe area, without overlapping system navigation.
+                Row(
+                    modifier = Modifier
+                        .align(Alignment.CenterHorizontally)
+                        .navigationBarsPadding()
+                        .padding(top = 4.dp, bottom = 5.dp),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    repeat(pageCount) { i ->
+                        val active = i == pageIndex
+                        val dotWidth by animateDpAsState(
+                            targetValue = if (active) 24.dp else 8.dp,
+                            animationSpec = tween(300),
+                            label = "dotWidth",
+                        )
+                        Box(
+                            modifier = Modifier
+                                .width(dotWidth)
+                                .height(8.dp)
+                                .clip(CircleShape)
+                                .background(if (active) Accent else Accent.copy(alpha = 0.25f))
+                        )
+                    }
                 }
             }
         }
@@ -344,7 +397,7 @@ private fun PermissionContent(
     Column(
         modifier = Modifier
             .fillMaxSize()
-            .padding(start = 28.dp, end = 28.dp, bottom = 16.dp),
+            .padding(start = 28.dp, end = 28.dp, bottom = 8.dp),
         horizontalAlignment = Alignment.Start,
     ) {
         // The text shares a fixed top line and can scroll without shifting the actions.
@@ -372,7 +425,7 @@ private fun PermissionContent(
                 style = MaterialTheme.typography.bodyMedium,
                 color = TextSecondary,
             )
-            Spacer(modifier = Modifier.height(18.dp))
+            Spacer(modifier = Modifier.height(10.dp))
         }
 
         // Same bottom anchor and height on both pages, regardless of description length.
@@ -411,7 +464,7 @@ private fun ActionRow(
             modifier = Modifier
                 .weight(1.25f)
                 .height(52.dp),
-            shape = RoundedCornerShape(18.dp),
+            shape = RoundedCornerShape(ONBOARDING_ACTION_RADIUS_DP.dp),
             contentPadding = PaddingValues(horizontal = 10.dp),
             colors = ButtonDefaults.buttonColors(
                 containerColor = Accent,
@@ -432,7 +485,7 @@ private fun ActionRow(
             modifier = Modifier
                 .weight(1f)
                 .height(52.dp),
-            shape = RoundedCornerShape(18.dp),
+            shape = RoundedCornerShape(ONBOARDING_ACTION_RADIUS_DP.dp),
             contentPadding = PaddingValues(horizontal = 10.dp),
             border = BorderStroke(1.dp, Accent.copy(alpha = 0.6f)),
             colors = ButtonDefaults.outlinedButtonColors(contentColor = TextPrimary),
