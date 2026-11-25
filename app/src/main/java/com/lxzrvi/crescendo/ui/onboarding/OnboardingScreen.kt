@@ -30,14 +30,17 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.MaterialTheme
@@ -74,8 +77,8 @@ import com.lxzrvi.crescendo.ui.theme.TextSecondary
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
-// Welcome ka mark (~38dp) / loader (88dp)
-private const val MARK_START_SCALE = 38f / 88f
+// Keep the loader's starting size in sync with the larger welcome mark.
+private const val MARK_START_SCALE = WELCOME_MARK_SIZE_DP / 88f
 
 @Composable
 fun OnboardingScreen(onFinished: () -> Unit) {
@@ -127,15 +130,24 @@ fun OnboardingScreen(onFinished: () -> Unit) {
 
     BackHandler(enabled = pageIndex > 0 && !finishing) { pageIndex-- }
 
-    // ---- Background: har forward step (Allow/Skip/welcome) pe screen ke neeche se upar tak poora travel ----
-    val bgTravel = remember { Animatable(1f) }          // 0 = screen ke neeche, 1 = apni jagah
+    // Permission pages keep the glow at the top; welcome moves it to the bottom.
+    val bgTravel = remember { Animatable(1f) } // Permission-page forward transition.
+    val bgPosition = remember { Animatable(0f) } // 0 = top, 1 = bottom.
     val prevIndex = remember { intArrayOf(0) }
     LaunchedEffect(pageIndex) {
-        if (pageIndex > prevIndex[0]) {
-            bgTravel.snapTo(0f)
-            bgTravel.animateTo(1f, tween(durationMillis = 1000, easing = FastOutSlowInEasing))
-        }
+        val previous = prevIndex[0]
+        // Update before suspending so rapid taps/back gestures remain consistent.
         prevIndex[0] = pageIndex
+        if (pageIndex >= pageCount) {
+            launch { bgTravel.animateTo(1f, tween(1000, easing = FastOutSlowInEasing)) }
+            bgPosition.animateTo(1f, tween(1000, easing = FastOutSlowInEasing))
+        } else {
+            launch { bgPosition.animateTo(0f, tween(1000, easing = FastOutSlowInEasing)) }
+            if (pageIndex > previous && previous < pageCount) {
+                bgTravel.snapTo(0f)
+            }
+            bgTravel.animateTo(1f, tween(1000, easing = FastOutSlowInEasing))
+        }
     }
 
     // ---- Let's get started: bg neeche slide + fade, icon center me aake loader ----
@@ -158,6 +170,7 @@ fun OnboardingScreen(onFinished: () -> Unit) {
     ) {
 
         GradientBlobBackground(
+            position = bgPosition.value,
             modifier = Modifier
                 .fillMaxSize()
                 .graphicsLayer {
@@ -242,12 +255,11 @@ private fun PermissionStage(
     onOptionalBackground: () -> Unit,
 ) {
     Column(modifier = Modifier.fillMaxSize()) {
-
-        // Center wordmark — AnimatedContent ke bahar, isliye slide nahi hota
+        // A fixed fraction of the screen keeps the wordmark still even when page text changes height.
         Box(
             modifier = Modifier
-                .weight(1f)
-                .fillMaxWidth(),
+                .fillMaxWidth()
+                .fillMaxHeight(0.64f),
             contentAlignment = Alignment.Center,
         ) {
             Text(
@@ -259,52 +271,67 @@ private fun PermissionStage(
             )
         }
 
-        // Sirf ye part slide hoga
-        AnimatedContent(
-            targetState = pageIndex,
-            modifier = Modifier.fillMaxWidth(),
-            transitionSpec = {
-                if (targetState < initialState) {
-                    (slideInHorizontally(tween(420)) { -it } + fadeIn(tween(420))) togetherWith
-                        (slideOutHorizontally(tween(420)) { it } + fadeOut(tween(420)))
-                } else {
-                    (slideInHorizontally(tween(420)) { it } + fadeIn(tween(420))) togetherWith
-                        (slideOutHorizontally(tween(420)) { -it } + fadeOut(tween(420)))
-                }
-            },
-            label = "permissionBottom",
-        ) { index ->
-            val page = PermissionPages.all[index]
-            PermissionContent(
-                page = page,
-                onOk = { onOk(page) },
-                onSkip = onSkip,
-                onOptionalBackground = onOptionalBackground,
-            )
-        }
-
-        // Dots bhi static (sirf width animate hoti hai)
-        Row(
+        Column(
             modifier = Modifier
-                .align(Alignment.CenterHorizontally)
-                .padding(top = 4.dp, bottom = 36.dp),
-            horizontalArrangement = Arrangement.spacedBy(8.dp),
-            verticalAlignment = Alignment.CenterVertically,
+                .weight(1f)
+                .fillMaxWidth(),
+            verticalArrangement = Arrangement.Bottom,
         ) {
-            repeat(pageCount) { i ->
-                val active = i == pageIndex
-                val dotWidth by animateDpAsState(
-                    targetValue = if (active) 24.dp else 8.dp,
-                    animationSpec = tween(300),
-                    label = "dotWidth",
-                )
-                Box(
+            // Only the lower content slides; long text scrolls instead of moving the wordmark.
+            AnimatedContent(
+                targetState = pageIndex,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .weight(1f, fill = false),
+                transitionSpec = {
+                    if (targetState < initialState) {
+                        (slideInHorizontally(tween(420)) { -it } + fadeIn(tween(420))) togetherWith
+                            (slideOutHorizontally(tween(420)) { it } + fadeOut(tween(420)))
+                    } else {
+                        (slideInHorizontally(tween(420)) { it } + fadeIn(tween(420))) togetherWith
+                            (slideOutHorizontally(tween(420)) { -it } + fadeOut(tween(420)))
+                    }
+                },
+                label = "permissionBottom",
+            ) { index ->
+                val page = PermissionPages.all[index]
+                Column(
                     modifier = Modifier
-                        .width(dotWidth)
-                        .height(8.dp)
-                        .clip(CircleShape)
-                        .background(if (active) Accent else Accent.copy(alpha = 0.25f))
-                )
+                        .fillMaxWidth()
+                        .verticalScroll(rememberScrollState()),
+                ) {
+                    PermissionContent(
+                        page = page,
+                        onOk = { onOk(page) },
+                        onSkip = onSkip,
+                        onOptionalBackground = onOptionalBackground,
+                    )
+                }
+            }
+
+            // Dots stay anchored; only the active dot's width animates.
+            Row(
+                modifier = Modifier
+                    .align(Alignment.CenterHorizontally)
+                    .padding(top = 4.dp, bottom = 36.dp),
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                repeat(pageCount) { i ->
+                    val active = i == pageIndex
+                    val dotWidth by animateDpAsState(
+                        targetValue = if (active) 24.dp else 8.dp,
+                        animationSpec = tween(300),
+                        label = "dotWidth",
+                    )
+                    Box(
+                        modifier = Modifier
+                            .width(dotWidth)
+                            .height(8.dp)
+                            .clip(CircleShape)
+                            .background(if (active) Accent else Accent.copy(alpha = 0.25f))
+                    )
+                }
             }
         }
     }

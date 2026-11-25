@@ -8,6 +8,7 @@ import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -32,9 +33,10 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Brush
-import androidx.compose.ui.layout.boundsInRoot
 import androidx.compose.ui.layout.onGloballyPositioned
+import androidx.compose.ui.layout.positionInRoot
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -50,6 +52,7 @@ import com.lxzrvi.crescendo.ui.theme.TextPrimary
 import com.lxzrvi.crescendo.ui.theme.TextSecondary
 
 private const val REPO_URL = "https://github.com/lxzrvi/Crescendo"
+internal const val WELCOME_MARK_SIZE_DP = 68f
 
 @Composable
 fun WelcomeContent(
@@ -71,45 +74,59 @@ fun WelcomeContent(
         ) {
             Spacer(modifier = Modifier.height(16.dp))
 
-            // WELCOME bada, TO ka color bhi same (TextPrimary), baseline aligned
-            Row {
-                Text(
-                    text = "WELCOME",
-                    fontSize = 38.sp,
-                    fontWeight = FontWeight.SemiBold,
-                    letterSpacing = 2.sp,
-                    color = TextPrimary,
-                    modifier = Modifier.alignByBaseline(),
-                )
-                Spacer(modifier = Modifier.width(10.dp))
-                Text(
-                    text = "TO",
-                    fontSize = 20.sp,
-                    fontWeight = FontWeight.SemiBold,
-                    color = TextPrimary,
-                    modifier = Modifier.alignByBaseline(),
-                )
-            }
-            Spacer(modifier = Modifier.height(6.dp))
+            // The larger mark sits to the right, centered against both lines as one group.
+            BoxWithConstraints(modifier = Modifier.fillMaxWidth()) {
+                val textWidth = (maxWidth.value - WELCOME_MARK_SIZE_DP - 10f).coerceAtLeast(1f)
+                val fontScale = LocalDensity.current.fontScale
+                val headerScale = (textWidth / (242f * fontScale)).coerceIn(0.35f, 1f)
 
-            // Crescendo left, icon bilkul right me, text ke vertical center me
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                Text(
-                    text = "Crescendo",
-                    fontFamily = BorelFamily,
-                    fontSize = 44.sp,
-                    color = TextPrimary,
-                )
-                Spacer(modifier = Modifier.weight(1f))
-                CrescendoMark(
-                    modifier = Modifier
-                        .size(38.dp)
-                        .onGloballyPositioned { onMarkPositioned(it.boundsInRoot().center) },
-                    tint = TextPrimary,
-                )
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Column(modifier = Modifier.weight(1f)) {
+                        Row {
+                            Text(
+                                text = "WELCOME",
+                                fontSize = 38.sp * headerScale,
+                                fontWeight = FontWeight.SemiBold,
+                                letterSpacing = 2.sp * headerScale,
+                                color = TextPrimary,
+                                modifier = Modifier.alignByBaseline(),
+                            )
+                            Spacer(modifier = Modifier.width(10.dp))
+                            Text(
+                                text = "TO",
+                                fontSize = 20.sp * headerScale,
+                                fontWeight = FontWeight.SemiBold,
+                                color = TextPrimary,
+                                modifier = Modifier.alignByBaseline(),
+                            )
+                        }
+                        Spacer(modifier = Modifier.height(6.dp))
+                        Text(
+                            text = "Crescendo",
+                            fontFamily = BorelFamily,
+                            fontSize = 44.sp * headerScale,
+                            color = TextPrimary,
+                        )
+                    }
+                    Spacer(modifier = Modifier.width(10.dp))
+                    CrescendoMark(
+                        modifier = Modifier
+                            .size(WELCOME_MARK_SIZE_DP.dp)
+                            .onGloballyPositioned { coordinates ->
+                                val origin = coordinates.positionInRoot()
+                                onMarkPositioned(
+                                    origin + Offset(
+                                        coordinates.size.width / 2f,
+                                        coordinates.size.height / 2f,
+                                    )
+                                )
+                            },
+                        tint = TextPrimary,
+                    )
+                }
             }
 
             Spacer(modifier = Modifier.height(28.dp))

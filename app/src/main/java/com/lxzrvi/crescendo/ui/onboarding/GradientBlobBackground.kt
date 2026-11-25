@@ -21,6 +21,7 @@ import com.lxzrvi.crescendo.ui.theme.NeonRed
 import com.lxzrvi.crescendo.ui.theme.RedDeep
 import com.lxzrvi.crescendo.ui.theme.RedSoft
 import kotlin.math.PI
+import kotlin.math.abs
 import kotlin.math.cos
 import kotlin.math.exp
 import kotlin.math.sin
@@ -51,23 +52,27 @@ private fun softStops(color: Color, alpha: Float, n: Int = 16, k: Double = 4.2):
     }
 }
 
-/** Top par halka rang, neeche transparent — blobs ke beech gaps na dikhein. */
-private fun baseStops(color: Color, n: Int = 20): Array<Pair<Float, Color>> =
+/** Soft base that follows the glow from the top edge to the bottom edge. */
+private fun baseStops(color: Color, position: Float, n: Int = 30): Array<Pair<Float, Color>> =
     Array(n + 1) { i ->
-        val t = i / n.toFloat()
-        t to color.copy(alpha = 0.9f * (1f - smoothstep((t - 0.30f) / 0.35f)))
+        val y = i / n.toFloat()
+        val distance = abs(y - position)
+        y to color.copy(alpha = 0.9f * (1f - smoothstep((distance - 0.30f) / 0.35f)))
     }
 
-/** Eased fade: rang -> dark tone -> pure black (seedhi line nahi, premium transition). */
-private fun inkStops(deep: Color, n: Int = 12): Array<Pair<Float, Color>> =
+/** Blend away from the moving glow into pure AMOLED black, without a hard edge. */
+private fun inkStops(deep: Color, position: Float, n: Int = 40): Array<Pair<Float, Color>> =
     Array(n + 1) { i ->
-        val t = i / n.toFloat()
+        val y = i / n.toFloat()
+        val distance = abs(y - position)
+        val t = ((distance - 0.34f) / 0.48f).coerceIn(0f, 1f)
         val tone = lerp(deep, AmoledBlack, smoothstep((t - 0.30f) / 0.70f))
-        t to tone.copy(alpha = smoothstep(t))
+        y to tone.copy(alpha = smoothstep(t))
     }
 
+/** position: 0 = permission pages (top), 1 = welcome page (bottom). */
 @Composable
-fun GradientBlobBackground(modifier: Modifier = Modifier) {
+fun GradientBlobBackground(modifier: Modifier = Modifier, position: Float = 0f) {
     val transition = rememberInfiniteTransition(label = "blobs")
     val phase = transition.animateFloat(
         initialValue = 0f,
@@ -102,16 +107,25 @@ fun GradientBlobBackground(modifier: Modifier = Modifier) {
                     Blob(AmoledBlack, 1.00f, 0.76f, 0.70f),
                 )
 
-                fun brushOf(b: Blob) = Brush.radialGradient(
+                val placement = position.coerceIn(0f, 1f)
+                // Move every coloured blob down together, preserving its shape and slow drift.
+                val lightCenters = lights.map { Offset(it.cx * w, (it.cy + 0.60f * placement) * h) }
+                val topInkCenters = inks.map { Offset(it.cx * w, it.cy * h) }
+                val bottomInkCenters = inks.map { Offset(it.cx * w, (1f - it.cy) * h) }
+
+                fun brushOf(b: Blob, center: Offset) = Brush.radialGradient(
                     *softStops(b.color, b.alpha),
-                    center = Offset(b.cx * w, b.cy * h),
+                    center = center,
                     radius = b.r * w,
                 )
 
-                val baseBrush = Brush.verticalGradient(*baseStops(RedDeep), startY = 0f, endY = h)
-                val lightBrushes = lights.map { brushOf(it) }
-                val inkFade = Brush.verticalGradient(*inkStops(deep), startY = 0.34f * h, endY = 0.82f * h)
-                val inkBrushes = inks.map { brushOf(it) }
+                val baseBrush = Brush.verticalGradient(*baseStops(RedDeep, placement), startY = 0f, endY = h)
+                val lightBrushes = lights.mapIndexed { i, b -> brushOf(b, lightCenters[i]) }
+                val inkFade = Brush.verticalGradient(*inkStops(deep, placement), startY = 0f, endY = h)
+                val topInkBrushes = inks.mapIndexed { i, b -> brushOf(b, topInkCenters[i]) }
+                val bottomInkBrushes = inks.mapIndexed { i, b -> brushOf(b, bottomInkCenters[i]) }
+                val topInkAlpha = 1f - smoothstep(placement * 2f)
+                val bottomInkAlpha = smoothstep((placement - 0.5f) * 2f)
 
                 onDrawBehind {
                     val p = phase.value * 2f * PI.toFloat()
@@ -125,19 +139,31 @@ fun GradientBlobBackground(modifier: Modifier = Modifier) {
                             drawCircle(
                                 brush = lightBrushes[i],
                                 radius = b.r * w,
-                                center = Offset(b.cx * w, b.cy * h),
+                                center = lightCenters[i],
                             )
                         }
                     }
 
                     drawRect(inkFade)
 
+                    // The dark edge switches sides as the glow travels, staying soft throughout.
                     inks.forEachIndexed { i, b ->
-                        drawCircle(
-                            brush = inkBrushes[i],
-                            radius = b.r * w,
-                            center = Offset(b.cx * w, b.cy * h),
-                        )
+                        if (topInkAlpha > 0f) {
+                            drawCircle(
+                                brush = topInkBrushes[i],
+                                radius = b.r * w,
+                                center = topInkCenters[i],
+                                alpha = topInkAlpha,
+                            )
+                        }
+                        if (bottomInkAlpha > 0f) {
+                            drawCircle(
+                                brush = bottomInkBrushes[i],
+                                radius = b.r * w,
+                                center = bottomInkCenters[i],
+                                alpha = bottomInkAlpha,
+                            )
+                        }
                     }
                 }
             }
