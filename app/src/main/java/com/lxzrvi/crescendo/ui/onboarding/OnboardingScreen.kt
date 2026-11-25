@@ -60,6 +60,7 @@ import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.lerp
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.IntSize
@@ -78,7 +79,8 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
 // Keep the loader's starting size in sync with the larger welcome mark.
-private const val MARK_START_SCALE = WELCOME_MARK_SIZE_DP / 88f
+private const val LOADER_SIZE_DP = 88f
+private const val MARK_START_SCALE = WELCOME_MARK_SIZE_DP / LOADER_SIZE_DP
 
 @Composable
 fun OnboardingScreen(onFinished: () -> Unit) {
@@ -130,34 +132,28 @@ fun OnboardingScreen(onFinished: () -> Unit) {
 
     BackHandler(enabled = pageIndex > 0 && !finishing) { pageIndex-- }
 
-    // Permission pages keep the glow at the top; welcome moves it to the bottom.
-    val bgTravel = remember { Animatable(1f) } // Permission-page forward transition.
+    // The glow stays in place across both permissions, then glides down for welcome.
     val bgPosition = remember { Animatable(0f) } // 0 = top, 1 = bottom.
-    val prevIndex = remember { intArrayOf(0) }
-    LaunchedEffect(pageIndex) {
-        val previous = prevIndex[0]
-        // Update before suspending so rapid taps/back gestures remain consistent.
-        prevIndex[0] = pageIndex
-        if (pageIndex >= pageCount) {
-            launch { bgTravel.animateTo(1f, tween(1000, easing = FastOutSlowInEasing)) }
-            bgPosition.animateTo(1f, tween(1000, easing = FastOutSlowInEasing))
-        } else {
-            launch { bgPosition.animateTo(0f, tween(1000, easing = FastOutSlowInEasing)) }
-            if (pageIndex > previous && previous < pageCount) {
-                bgTravel.snapTo(0f)
-            }
-            bgTravel.animateTo(1f, tween(1000, easing = FastOutSlowInEasing))
-        }
+    val showWelcome = pageIndex >= pageCount
+    LaunchedEffect(showWelcome) {
+        bgPosition.animateTo(
+            targetValue = if (showWelcome) 1f else 0f,
+            animationSpec = tween(1600, easing = FastOutSlowInEasing),
+        )
     }
 
-    // ---- Let's get started: bg neeche slide + fade, icon center me aake loader ----
-    val exit = remember { Animatable(0f) }        // bg vanish
-    val loaderIn = remember { Animatable(0f) }    // icon -> center
+    // Mark -> centered loader; after a short load, zoom and fade before showing Home.
+    val exit = remember { Animatable(0f) }
+    val loaderIn = remember { Animatable(0f) }
+    val loaderZoom = remember { Animatable(0f) }
+    val loaderFade = remember { Animatable(1f) }
     LaunchedEffect(finishing) {
         if (finishing) {
             launch { exit.animateTo(1f, tween(900, easing = FastOutSlowInEasing)) }
             launch { loaderIn.animateTo(1f, tween(800, easing = FastOutSlowInEasing)) }
-            delay(2400) // slide (0.8s) + loading animation (~1.6s)
+            delay(2400) // 0.8s travel plus a little time to see the loading animation.
+            loaderZoom.animateTo(1f, tween(850, easing = FastOutSlowInEasing))
+            loaderFade.animateTo(0f, tween(350, easing = FastOutSlowInEasing))
             onFinished()
         }
     }
@@ -175,8 +171,8 @@ fun OnboardingScreen(onFinished: () -> Unit) {
                 .fillMaxSize()
                 .graphicsLayer {
                     val h = rootSize.height.toFloat()
-                    // (1 - bgTravel): neeche se upar | exit: upar se neeche
-                    translationY = ((1f - bgTravel.value) + exit.value) * h
+                    // Only the final exit slides the whole background down and fades it.
+                    translationY = exit.value * h
                     alpha = 1f - exit.value
                 }
         )
@@ -188,7 +184,7 @@ fun OnboardingScreen(onFinished: () -> Unit) {
         ) {
             // Outer: permission stage <-> welcome
             AnimatedContent(
-                targetState = pageIndex >= pageCount,
+                targetState = showWelcome,
                 modifier = Modifier.fillMaxSize(),
                 transitionSpec = {
                     if (targetState) {
@@ -224,19 +220,26 @@ fun OnboardingScreen(onFinished: () -> Unit) {
             val start = if (c != null && rootSize != IntSize.Zero)
                 Offset(c.x - rootSize.width / 2f, c.y - rootSize.height / 2f)
             else Offset.Zero
+            val loaderSizePx = with(LocalDensity.current) { LOADER_SIZE_DP.dp.toPx() }
+            val fullScreenScale =
+                (maxOf(rootSize.width, rootSize.height).toFloat() / loaderSizePx * 1.12f)
+                    .coerceAtLeast(1f)
 
             Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                 CrescendoLoader(
                     modifier = Modifier
-                        .size(88.dp)
+                        .size(LOADER_SIZE_DP.dp)
                         .graphicsLayer {
                             val t = loaderIn.value
+                            val zoom = loaderZoom.value
                             translationX = start.x * (1f - t)
                             translationY = start.y * (1f - t)
-                            val s = MARK_START_SCALE + (1f - MARK_START_SCALE) * t
-                            scaleX = s
-                            scaleY = s
-                            alpha = (t * 5f).coerceIn(0f, 1f)
+                            val entryScale = MARK_START_SCALE + (1f - MARK_START_SCALE) * t
+                            val zoomScale = 1f + (fullScreenScale - 1f) * zoom
+                            scaleX = entryScale * zoomScale
+                            scaleY = entryScale * zoomScale
+                            val entryAlpha = (t * 5f).coerceIn(0f, 1f)
+                            alpha = entryAlpha * loaderFade.value
                         },
                     color = lerp(TextPrimary, Accent, loaderIn.value),
                 )
@@ -277,12 +280,12 @@ private fun PermissionStage(
                 .fillMaxWidth(),
             verticalArrangement = Arrangement.Bottom,
         ) {
-            // Only the lower content slides; long text scrolls instead of moving the wordmark.
+            // Both pages use one fixed-height slide area, so they move strictly sideways.
             AnimatedContent(
                 targetState = pageIndex,
                 modifier = Modifier
                     .fillMaxWidth()
-                    .weight(1f, fill = false),
+                    .weight(1f),
                 transitionSpec = {
                     if (targetState < initialState) {
                         (slideInHorizontally(tween(420)) { -it } + fadeIn(tween(420))) togetherWith
@@ -295,18 +298,12 @@ private fun PermissionStage(
                 label = "permissionBottom",
             ) { index ->
                 val page = PermissionPages.all[index]
-                Column(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .verticalScroll(rememberScrollState()),
-                ) {
-                    PermissionContent(
-                        page = page,
-                        onOk = { onOk(page) },
-                        onSkip = onSkip,
-                        onOptionalBackground = onOptionalBackground,
-                    )
-                }
+                PermissionContent(
+                    page = page,
+                    onOk = { onOk(page) },
+                    onSkip = onSkip,
+                    onOptionalBackground = onOptionalBackground,
+                )
             }
 
             // Dots stay anchored; only the active dot's width animates.
@@ -346,31 +343,39 @@ private fun PermissionContent(
 ) {
     Column(
         modifier = Modifier
-            .fillMaxWidth()
+            .fillMaxSize()
             .padding(start = 28.dp, end = 28.dp, bottom = 16.dp),
         horizontalAlignment = Alignment.Start,
     ) {
-        // Label ke aage icon
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            when (page.kind) {
-                PermissionKind.MUSIC -> MusicNoteIcon(Modifier.size(26.dp), tint = Accent)
-                PermissionKind.NOTIFICATIONS -> BellIcon(Modifier.size(26.dp), tint = Accent)
+        // The text shares a fixed top line and can scroll without shifting the actions.
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .weight(1f)
+                .verticalScroll(rememberScrollState()),
+        ) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                when (page.kind) {
+                    PermissionKind.MUSIC -> MusicNoteIcon(Modifier.size(26.dp), tint = Accent)
+                    PermissionKind.NOTIFICATIONS -> BellIcon(Modifier.size(26.dp), tint = Accent)
+                }
+                Spacer(modifier = Modifier.width(10.dp))
+                Text(
+                    text = page.title,
+                    style = MaterialTheme.typography.headlineMedium,
+                    color = TextPrimary,
+                )
             }
-            Spacer(modifier = Modifier.width(10.dp))
+            Spacer(modifier = Modifier.height(10.dp))
             Text(
-                text = page.title,
-                style = MaterialTheme.typography.headlineMedium,
-                color = TextPrimary,
+                text = page.detail,
+                style = MaterialTheme.typography.bodyMedium,
+                color = TextSecondary,
             )
+            Spacer(modifier = Modifier.height(18.dp))
         }
-        Spacer(modifier = Modifier.height(10.dp))
-        Text(
-            text = page.detail,
-            style = MaterialTheme.typography.bodyMedium,
-            color = TextSecondary,
-        )
-        Spacer(modifier = Modifier.height(18.dp))
 
+        // Same bottom anchor and height on both pages, regardless of description length.
         when (page.kind) {
             PermissionKind.MUSIC -> ActionRow(
                 primaryLabel = page.actionLabel,

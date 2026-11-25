@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Vector silhouette traced from the user's onboarding icon reference. -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="24dp"
+    android:height="24dp"
+    android:viewportWidth="24"
+    android:viewportHeight="24">
+    <path
+        android:fillColor="#FFFFFFFF"
+        android:fillType="evenOdd"
+        android:pathData="M20.59,1.10 L20.39,1.00 L20.00,1.00 L17.31,1.60 L8.72,3.28 L8.23,3.63 L8.08,3.93 L8.03,16.69 L7.83,17.24 L7.33,17.74 L6.93,17.88 L5.54,17.88 L5.00,17.98 L4.20,18.38 L3.66,18.93 L3.36,19.47 L3.21,19.97 L3.21,20.96 L3.56,21.81 L4.10,22.40 L4.80,22.80 L5.59,23.00 L6.74,23.00 L7.23,22.90 L7.78,22.70 L8.37,22.30 L8.77,21.91 L9.27,21.01 L9.47,20.07 L9.52,8.20 L9.72,8.00 L18.90,6.02 L19.20,6.02 L19.40,6.26 L19.40,14.16 L19.30,14.71 L18.95,15.30 L18.51,15.60 L18.16,15.70 L16.42,15.75 L15.87,15.95 L15.43,16.25 L15.08,16.59 L14.68,17.24 L14.53,17.74 L14.48,18.43 L14.68,19.23 L15.08,19.87 L15.67,20.37 L16.17,20.62 L16.72,20.77 L17.76,20.81 L18.65,20.67 L19.55,20.22 L20.14,19.62 L20.54,18.93 L20.79,17.88 L20.79,1.45 Z" />
+</vector>

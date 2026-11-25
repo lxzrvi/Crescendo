@@ -65,7 +65,10 @@ private fun inkStops(deep: Color, position: Float, n: Int = 40): Array<Pair<Floa
     Array(n + 1) { i ->
         val y = i / n.toFloat()
         val distance = abs(y - position)
-        val t = ((distance - 0.34f) / 0.48f).coerceIn(0f, 1f)
+        // On welcome, leave more of the top pure black and fade gently into the lower glow.
+        val fadeStart = 0.34f - 0.07f * position
+        val fadeEnd = 0.82f - 0.15f * position
+        val t = ((distance - fadeStart) / (fadeEnd - fadeStart)).coerceIn(0f, 1f)
         val tone = lerp(deep, AmoledBlack, smoothstep((t - 0.30f) / 0.70f))
         y to tone.copy(alpha = smoothstep(t))
     }
@@ -109,7 +112,7 @@ fun GradientBlobBackground(modifier: Modifier = Modifier, position: Float = 0f) 
 
                 val placement = position.coerceIn(0f, 1f)
                 // Move every coloured blob down together, preserving its shape and slow drift.
-                val lightCenters = lights.map { Offset(it.cx * w, (it.cy + 0.60f * placement) * h) }
+                val lightCenters = lights.map { Offset(it.cx * w, (it.cy + 0.68f * placement) * h) }
                 val topInkCenters = inks.map { Offset(it.cx * w, it.cy * h) }
                 val bottomInkCenters = inks.map { Offset(it.cx * w, (1f - it.cy) * h) }
 

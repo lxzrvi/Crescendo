@@ -15,6 +15,7 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
@@ -42,9 +43,10 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.lxzrvi.crescendo.ui.components.ArrowRightIcon
 import com.lxzrvi.crescendo.ui.components.CrescendoMark
+import com.lxzrvi.crescendo.ui.components.GithubIcon
 import com.lxzrvi.crescendo.ui.components.LockIcon
-import com.lxzrvi.crescendo.ui.components.MusicNoteIcon
 import com.lxzrvi.crescendo.ui.components.StarIcon
+import com.lxzrvi.crescendo.ui.components.WaveformIcon
 import com.lxzrvi.crescendo.ui.theme.Accent
 import com.lxzrvi.crescendo.ui.theme.AmoledBlack
 import com.lxzrvi.crescendo.ui.theme.BorelFamily
@@ -76,12 +78,14 @@ fun WelcomeContent(
 
             // The larger mark sits to the right, centered against both lines as one group.
             BoxWithConstraints(modifier = Modifier.fillMaxWidth()) {
-                val textWidth = (maxWidth.value - WELCOME_MARK_SIZE_DP - 10f).coerceAtLeast(1f)
+                val textWidth = (maxWidth.value - WELCOME_MARK_SIZE_DP - 18f).coerceAtLeast(1f)
                 val fontScale = LocalDensity.current.fontScale
                 val headerScale = (textWidth / (242f * fontScale)).coerceIn(0.35f, 1f)
 
                 Row(
-                    modifier = Modifier.fillMaxWidth(),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(end = 8.dp),
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
                     Column(modifier = Modifier.weight(1f)) {
@@ -114,6 +118,7 @@ fun WelcomeContent(
                     Spacer(modifier = Modifier.width(10.dp))
                     CrescendoMark(
                         modifier = Modifier
+                            .offset(y = (-8).dp)
                             .size(WELCOME_MARK_SIZE_DP.dp)
                             .onGloballyPositioned { coordinates ->
                                 val origin = coordinates.positionInRoot()
@@ -132,7 +137,7 @@ fun WelcomeContent(
             Spacer(modifier = Modifier.height(28.dp))
 
             Section(
-                icon = { MusicNoteIcon(modifier = Modifier.size(16.dp), tint = Accent) },
+                icon = { WaveformIcon(modifier = Modifier.size(16.dp), tint = Accent) },
                 heading = "IN SYNC WITH THE RHYTHM",
                 body = "Just like a crescendo rises from soft to powerful, Crescendo is here to lift your mood through the power of music.\n\nListen to songs from your own music library, discover your favorite rhythms, and let every beat bring a little more joy to your day.",
             )
@@ -232,9 +237,10 @@ private fun GithubStarButton(onClick: () -> Unit) {
             .fillMaxWidth()
             .height(56.dp)
             .clip(shape)
+            .background(AmoledBlack.copy(alpha = 0.32f))
             .background(
                 Brush.horizontalGradient(
-                    listOf(Accent.copy(alpha = 0.20f), Accent.copy(alpha = 0.05f))
+                    listOf(Accent.copy(alpha = 0.25f), Accent.copy(alpha = 0.10f))
                 )
             )
             .border(
@@ -255,7 +261,7 @@ private fun GithubStarButton(onClick: () -> Unit) {
                 .background(Accent.copy(alpha = 0.18f)),
             contentAlignment = Alignment.Center,
         ) {
-            StarIcon(modifier = Modifier.size(17.dp), tint = Accent)
+            GithubIcon(modifier = Modifier.size(20.dp), tint = Accent)
         }
         Spacer(modifier = Modifier.width(12.dp))
         Column(modifier = Modifier.weight(1f)) {
