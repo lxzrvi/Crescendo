@@ -241,8 +241,10 @@ fun HomeScreen(gradientPhase: State<Float>, modifier: Modifier = Modifier) {
             query = query,
             onQueryChange = { query = it.take(120) },
             onSelectTab = { tab ->
-                keyboard?.hide()
-                focusManager.clearFocus(force = true)
+                if (imeVisible) {
+                    keyboard?.hide()
+                    focusManager.clearFocus(force = true)
+                }
                 previousTab = tab
                 destination = tab
             },

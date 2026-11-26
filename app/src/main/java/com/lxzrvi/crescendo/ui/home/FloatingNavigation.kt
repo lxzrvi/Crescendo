@@ -10,6 +10,7 @@ import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.focusable
 import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.gestures.awaitLongPressOrCancellation
@@ -57,6 +58,11 @@ import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.lerp
 import androidx.compose.ui.graphics.luminance
+import androidx.compose.ui.input.key.Key
+import androidx.compose.ui.input.key.KeyEventType
+import androidx.compose.ui.input.key.key
+import androidx.compose.ui.input.key.onKeyEvent
+import androidx.compose.ui.input.key.type
 import androidx.compose.ui.input.pointer.changedToUp
 import androidx.compose.ui.input.pointer.changedToUpIgnoreConsumed
 import androidx.compose.ui.input.pointer.pointerInput
@@ -461,6 +467,15 @@ private fun NavigationTab(
                 .size(48.dp)
                 .clip(CircleShape)
                 .indication(interactionSource, ripple(bounded = true, radius = 24.dp, color = colors.onBackground))
+                .onKeyEvent { event ->
+                    if (enabled && event.type == KeyEventType.KeyUp &&
+                        (event.key == Key.Enter || event.key == Key.Spacebar || event.key == Key.DirectionCenter)
+                    ) {
+                        onSelect()
+                        true
+                    } else false
+                }
+                .focusable(enabled = enabled, interactionSource = interactionSource)
                 .semantics {
                     role = Role.Tab
                     this.selected = selected

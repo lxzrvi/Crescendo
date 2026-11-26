@@ -88,7 +88,7 @@ internal fun LiveGlassBorder(
                 )
                 onDrawWithContent {
                     clipPath(outer) {
-                        clipPath(inner, clipOp = ClipOp.Difference) { drawContent() }
+                        clipPath(inner, clipOp = ClipOp.Difference) { this@onDrawWithContent.drawContent() }
                     }
                     val line = 0.7.dp.toPx()
                     drawRoundRect(
