@@ -226,11 +226,14 @@ fun HomeScreen(modifier: Modifier = Modifier) {
                 loading = playback.isLoading,
                 error = playback.errorMessage,
                 onToggle = playback::toggle,
-                onClose = playback::close,
+                onNext = { playback.next((library as? MusicLibraryState.Ready)?.songs.orEmpty()) },
+                pageBackdrop = pageBackdrop,
+                pageInput = pageInput,
+                liveBlur = appearance.liveBlur,
                 modifier = Modifier
                     .align(Alignment.BottomCenter)
                     .navigationBarsPadding()
-                    .padding(start = 20.dp, end = 20.dp, bottom = 88.dp),
+                    .padding(start = ContentSidePadding, end = ContentSidePadding, bottom = 88.dp),
             )
         }
 

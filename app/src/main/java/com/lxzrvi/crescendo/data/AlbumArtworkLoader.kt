@@ -9,6 +9,7 @@ import android.net.Uri
 import android.os.Build
 import android.util.LruCache
 import android.util.Size
+import androidx.palette.graphics.Palette
 import java.util.concurrent.ConcurrentHashMap
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.sync.Semaphore
@@ -20,7 +21,9 @@ internal class AlbumArtworkLoader(context: Context) {
     private val appContext = context.applicationContext
     private val resolver = appContext.contentResolver
     private val pendingLimit = Semaphore(4)
+    private val paletteLimit = Semaphore(2)
     private val missing = ConcurrentHashMap.newKeySet<String>()
+    private val colors = LruCache<String, Int>(512)
     private val cache = object : LruCache<String, Bitmap>(24 * 1024) {
         override fun sizeOf(key: String, value: Bitmap): Int = (value.byteCount / 1024).coerceAtLeast(1)
     }
@@ -41,6 +44,30 @@ internal class AlbumArtworkLoader(context: Context) {
             val bitmap = thumbnail(song, size) ?: albumArt(song, size) ?: embeddedArt(song, size)
             if (bitmap == null) missing.add(key) else cache.put(key, bitmap)
             bitmap
+        }
+    }
+
+    /** Extract a real dominant swatch asynchronously; cache it across the Home sections. */
+    suspend fun dominantColor(song: Song, bitmap: Bitmap): Int? = withContext(Dispatchers.Default) {
+        val key = "${song.id}:${song.dateModified}"
+        colors.get(key)?.let { return@withContext it }
+        paletteLimit.withPermit {
+            colors.get(key)?.let { return@withPermit it }
+            var software: Bitmap? = null
+            val color = try {
+                // Palette reads pixels and cannot directly inspect a hardware bitmap.
+                software = if (bitmap.config == Bitmap.Config.HARDWARE) bitmap.copy(Bitmap.Config.ARGB_8888, false)
+                else bitmap
+                software?.let {
+                    Palette.from(it).clearFilters().maximumColorCount(16).generate().dominantSwatch?.rgb
+                }
+            } catch (_: Exception) {
+                null
+            } finally {
+                if (software != null && software !== bitmap) software?.recycle()
+            }
+            if (color != null) colors.put(key, color)
+            color
         }
     }
 

@@ -112,6 +112,24 @@ internal class ForegroundPlayback(
         }
     }
 
+    /** Next follows the actual alphabetically sorted device library, wrapping at the end. */
+    fun next(songs: List<Song>) {
+        if (songs.isEmpty()) return
+        val index = songs.indexOfFirst { it.id == currentSong?.id }
+        val next = songs[(index + 1).coerceAtLeast(0) % songs.size]
+        if (currentSong?.id != next.id) {
+            select(next)
+        } else {
+            // With a one-song library, Next restarts rather than merely toggling pause.
+            errorMessage = null
+            player.pause()
+            pendingCountId = next.id
+            player.seekTo(0)
+            if (player.playbackState == Player.STATE_IDLE) player.prepare()
+            player.play()
+        }
+    }
+
     fun pauseForBackground() { player.pause() }
 
     fun close() {

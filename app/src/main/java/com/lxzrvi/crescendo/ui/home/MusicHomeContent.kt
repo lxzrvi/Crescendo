@@ -1,4 +1,7 @@
-@file:OptIn(androidx.compose.foundation.layout.ExperimentalLayoutApi::class)
+@file:OptIn(
+    androidx.compose.foundation.ExperimentalFoundationApi::class,
+    androidx.compose.foundation.layout.ExperimentalLayoutApi::class,
+)
 
 package com.lxzrvi.crescendo.ui.home
 
@@ -7,16 +10,19 @@ import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.gestures.snapping.rememberSnapFlingBehavior
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.IntrinsicSize
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.asPaddingValues
 import androidx.compose.foundation.layout.aspectRatio
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -37,18 +43,27 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.State
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.drawWithContent
+import androidx.compose.ui.graphics.BlendMode
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.CompositingStrategy
 import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.graphics.lerp
 import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.platform.LocalLayoutDirection
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
@@ -56,6 +71,7 @@ import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
+import androidx.compose.ui.unit.LayoutDirection
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.lxzrvi.crescendo.R
@@ -72,7 +88,14 @@ import dev.chrisbanes.haze.blur.HazeColorEffect
 import dev.chrisbanes.haze.blur.hazeBlur
 import dev.chrisbanes.haze.hazeSource
 import dev.chrisbanes.haze.rememberHazeState
+import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
+import kotlin.math.abs
 import kotlin.random.Random
+
+internal val ContentSidePadding = 10.dp
+private const val ALL_SONGS_HEADER_INDEX = 6
 
 @Composable
 internal fun HomeMusicPage(
@@ -90,6 +113,8 @@ internal fun HomeMusicPage(
     modifier: Modifier = Modifier,
 ) {
     val colors = MaterialTheme.colorScheme
+    val density = LocalDensity.current
+    val scope = rememberCoroutineScope()
     val statusInset = WindowInsets.statusBars.asPaddingValues().calculateTopPadding()
     val songs = (library as? MusicLibraryState.Ready)?.songs.orEmpty()
     val topSongs = remember(songs, playCounts) {
@@ -101,25 +126,55 @@ internal fun HomeMusicPage(
     }
     val hasHistory = remember(songs, playCounts) { songs.any { (playCounts[it.historyKey] ?: 0) > 0 } }
     val quickGroups = remember(songs) {
-        songs.shuffled(Random(songs.size.toLong() + 319L)).take(100).chunked(5)
+        // Four columns of four distinct local songs, or fewer if the library is smaller.
+        songs.shuffled(Random(songs.size.toLong() + 319L)).take(16).chunked(4)
+    }
+    val carouselItems = remember(topSongs) {
+        if (topSongs.size > 1) List(topSongs.size * 3) { topSongs[it % topSongs.size] } else topSongs
+    }
+    val headerOffset = with(density) { (statusInset + 24.dp).roundToPx() }
+
+    LaunchedEffect(topSongs.map { it.id }) {
+        val count = topSongs.size
+        if (count > 1) {
+            // Three copies permit a seamless wrap without creating billions of fake accessibility items.
+            topState.scrollToItem(count + topState.firstVisibleItemIndex % count)
+            while (true) {
+                delay(5_000)
+                val visible = listState.layoutInfo.visibleItemsInfo.any { it.key == "top-carousel" }
+                if (visible && !topState.isScrollInProgress) {
+                    val layout = topState.layoutInfo
+                    val center = (layout.viewportStartOffset + layout.viewportEndOffset) / 2
+                    val centered = layout.visibleItemsInfo.minByOrNull { abs(it.offset + it.size / 2 - center) }
+                        ?.index ?: topState.firstVisibleItemIndex
+                    val normalized = if (centered < count || centered >= count * 2)
+                        count + centered % count else centered
+                    // A user drag can cancel this child without stopping the auto-scroll loop.
+                    coroutineScope {
+                        launch {
+                            if (normalized != centered) topState.scrollToItem(normalized)
+                            topState.animateScrollToItem(normalized + 1)
+                        }.join()
+                    }
+                }
+            }
+        }
     }
 
     BoxWithConstraints(modifier = modifier.fillMaxSize()) {
-        val columns = if (maxWidth >= 600.dp) 3 else 2
-        val allRows = remember(songs, columns) { songs.chunked(columns) }
-        val quickColumnWidth = (maxWidth - 62.dp).coerceIn(230.dp, 350.dp)
+        val allRows = remember(songs) { songs.chunked(4) }
+        val topCardWidth = (maxWidth - ContentSidePadding * 2).coerceAtLeast(100.dp)
+        val quickColumnWidth = (maxWidth - ContentSidePadding * 2 - 32.dp).coerceIn(210.dp, 360.dp)
         LazyColumn(
             state = listState,
             modifier = Modifier.fillMaxSize(),
             contentPadding = PaddingValues(top = statusInset + 24.dp, bottom = bottomPadding),
         ) {
-            item(key = "home-header") {
-                HomeHeader(onProfileClick = onProfileClick)
-            }
+            item(key = "home-header") { HomeHeader(onProfileClick = onProfileClick) }
             item(key = "home-title") {
                 Text(
                     text = "Home",
-                    modifier = Modifier.padding(start = 20.dp, end = 20.dp, top = 8.dp, bottom = 4.dp),
+                    modifier = Modifier.padding(start = ContentSidePadding, end = ContentSidePadding, top = 8.dp, bottom = 4.dp),
                     color = colors.onBackground,
                     fontSize = 32.sp,
                     lineHeight = 36.sp,
@@ -145,25 +200,33 @@ internal fun HomeMusicPage(
                         item(key = "top-carousel") {
                             LazyRow(
                                 state = topState,
-                                contentPadding = PaddingValues(horizontal = 20.dp),
-                                horizontalArrangement = Arrangement.spacedBy(12.dp),
+                                flingBehavior = rememberSnapFlingBehavior(lazyListState = topState),
+                                contentPadding = PaddingValues(horizontal = ContentSidePadding),
+                                horizontalArrangement = Arrangement.spacedBy(8.dp),
                             ) {
-                                items(topSongs, key = { it.id }) { song ->
+                                items(carouselItems.size, key = { it }) { index ->
+                                    val song = carouselItems[index]
                                     TopSongCard(
                                         song = song,
                                         artwork = artwork,
                                         playing = isPlaying && currentSong?.id == song.id,
                                         onClick = { onSongClick(song) },
+                                        modifier = Modifier.width(topCardWidth),
                                     )
                                 }
                             }
                         }
-                        item(key = "quick-heading") { SectionHeading("Quick Picks") }
+                        item(key = "quick-heading") {
+                            SectionHeading("Quick Picks", onMore = {
+                                // Header is index 6 while a non-empty library is rendered below.
+                                scope.launch { listState.animateScrollToItem(ALL_SONGS_HEADER_INDEX, -headerOffset) }
+                            })
+                        }
                         item(key = "quick-carousel") {
                             LazyRow(
                                 state = quickState,
-                                contentPadding = PaddingValues(horizontal = 20.dp),
-                                horizontalArrangement = Arrangement.spacedBy(16.dp),
+                                contentPadding = PaddingValues(horizontal = ContentSidePadding),
+                                horizontalArrangement = Arrangement.spacedBy(12.dp),
                             ) {
                                 items(quickGroups, key = { it.first().id }) { group ->
                                     Column(
@@ -176,6 +239,7 @@ internal fun HomeMusicPage(
                                                 artwork = artwork,
                                                 playing = isPlaying && currentSong?.id == song.id,
                                                 onClick = { onSongClick(song) },
+                                                showMore = true,
                                             )
                                         }
                                     }
@@ -187,8 +251,9 @@ internal fun HomeMusicPage(
                             Row(
                                 modifier = Modifier
                                     .fillMaxWidth()
-                                    .padding(start = 20.dp, end = 20.dp, bottom = 18.dp),
-                                horizontalArrangement = Arrangement.spacedBy(12.dp),
+                                    .padding(start = ContentSidePadding, end = ContentSidePadding, bottom = 8.dp)
+                                    .height(IntrinsicSize.Max),
+                                horizontalArrangement = Arrangement.spacedBy(6.dp),
                             ) {
                                 row.forEach { song ->
                                     SongGridCard(
@@ -196,10 +261,10 @@ internal fun HomeMusicPage(
                                         artwork = artwork,
                                         playing = isPlaying && currentSong?.id == song.id,
                                         onClick = { onSongClick(song) },
-                                        modifier = Modifier.weight(1f),
+                                        modifier = Modifier.weight(1f).fillMaxHeight(),
                                     )
                                 }
-                                repeat(columns - row.size) { Spacer(Modifier.weight(1f)) }
+                                repeat(4 - row.size) { Spacer(Modifier.weight(1f)) }
                             }
                         }
                     }
@@ -213,7 +278,7 @@ internal fun HomeMusicPage(
 private fun HomeHeader(onProfileClick: () -> Unit) {
     val colors = MaterialTheme.colorScheme
     Row(
-        modifier = Modifier.fillMaxWidth().padding(start = 20.dp, end = 16.dp),
+        modifier = Modifier.fillMaxWidth().padding(start = ContentSidePadding, end = ContentSidePadding),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.SpaceBetween,
     ) {
@@ -244,17 +309,41 @@ private fun HomeHeader(onProfileClick: () -> Unit) {
 }
 
 @Composable
-private fun SectionHeading(title: String, note: String? = null) {
+private fun SectionHeading(title: String, note: String? = null, onMore: (() -> Unit)? = null) {
     val colors = MaterialTheme.colorScheme
-    Column(modifier = Modifier.padding(start = 20.dp, end = 20.dp, top = 24.dp, bottom = 11.dp)) {
-        Text(
-            text = title,
-            color = colors.onBackground,
-            fontSize = 21.sp,
-            lineHeight = 25.sp,
-            letterSpacing = (-0.25).sp,
-            fontWeight = FontWeight.SemiBold,
-        )
+    val rtl = LocalLayoutDirection.current == LayoutDirection.Rtl
+    Column(modifier = Modifier.padding(start = ContentSidePadding, end = ContentSidePadding, top = 20.dp, bottom = 10.dp)) {
+        Row(modifier = Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+            Text(
+                text = title,
+                color = colors.onBackground,
+                fontSize = 21.sp,
+                lineHeight = 25.sp,
+                letterSpacing = (-0.25).sp,
+                fontWeight = FontWeight.SemiBold,
+                modifier = Modifier.weight(1f),
+            )
+            if (onMore != null) {
+                Row(
+                    modifier = Modifier
+                        .heightIn(min = 40.dp)
+                        .clip(RoundedCornerShape(12.dp))
+                        .clickable(role = Role.Button, onClick = onMore)
+                        .semantics { contentDescription = "Show all songs" }
+                        .padding(start = 8.dp, end = 2.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Text("More", color = colors.onBackground.copy(alpha = 0.68f), fontSize = 14.sp)
+                    Spacer(Modifier.width(5.dp))
+                    Icon(
+                        painter = painterResource(R.drawable.ic_onboarding_chevron),
+                        contentDescription = null,
+                        tint = colors.onBackground.copy(alpha = 0.68f),
+                        modifier = Modifier.size(12.dp).graphicsLayer { scaleX = if (rtl) -1f else 1f },
+                    )
+                }
+            }
+        }
         if (note != null) {
             Text(
                 text = note,
@@ -268,21 +357,43 @@ private fun SectionHeading(title: String, note: String? = null) {
 }
 
 @Composable
-private fun TopSongCard(song: Song, artwork: AlbumArtworkLoader, playing: Boolean, onClick: () -> Unit) {
+private fun TopSongCard(
+    song: Song,
+    artwork: AlbumArtworkLoader,
+    playing: Boolean,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    val colors = MaterialTheme.colorScheme
+    val visual by rememberArtworkVisual(song, artwork, 208.dp)
+    val dominant = visual.dominant?.let { Color(it) } ?: colors.surfaceVariant
+    val rtl = LocalLayoutDirection.current == LayoutDirection.Rtl
+    val coverMask = remember(rtl) {
+        if (rtl) Brush.horizontalGradient(0f to Color.Black, 0.58f to Color.Black, 1f to Color.Transparent)
+        else Brush.horizontalGradient(0f to Color.Transparent, 0.42f to Color.Black, 1f to Color.Black)
+    }
+    val legibility = remember(rtl) {
+        if (rtl) Brush.horizontalGradient(
+            0f to Color.Transparent, 0.42f to Color.Transparent,
+            0.72f to Color.Black.copy(alpha = 0.32f), 1f to Color.Black.copy(alpha = 0.58f),
+        ) else Brush.horizontalGradient(
+            0f to Color.Black.copy(alpha = 0.58f), 0.28f to Color.Black.copy(alpha = 0.32f),
+            0.58f to Color.Transparent, 1f to Color.Transparent,
+        )
+    }
     val haze = rememberHazeState()
     val input = remember(haze) { HazeInput.Sources(state = haze, selection = HazeSourceSelection.All) }
     val fade = remember {
         Brush.verticalGradient(
             0f to Color.Transparent,
-            0.28f to Color.Black.copy(alpha = 0.18f),
-            0.70f to Color.Black.copy(alpha = 0.75f),
-            1f to Color.Black,
+            0.45f to Color.Black.copy(alpha = 0.3f),
+            1f to Color.Black.copy(alpha = 0.75f),
         )
     }
-    val style = remember(fade) {
+    val blurStyle = remember(fade) {
         HazeBlurStyle {
             blurEnabled(true)
-            blurRadius(20.dp)
+            blurRadius(16.dp)
             noiseFactor(0f)
             backgroundColor(Color.Transparent)
             colorEffects(emptyList())
@@ -291,46 +402,59 @@ private fun TopSongCard(song: Song, artwork: AlbumArtworkLoader, playing: Boolea
             mask(fade)
         }
     }
-    val legibility = remember {
-        Brush.verticalGradient(
-            0f to Color.Transparent,
-            0.55f to Color.Transparent,
-            1f to Color.Black.copy(alpha = 0.62f),
-        )
-    }
     Box(
-        modifier = Modifier
-            .size(208.dp)
+        modifier = modifier
+            .height(208.dp)
             .clip(RoundedCornerShape(20.dp))
             .clickable(role = Role.Button, onClick = onClick)
             .semantics { contentDescription = "${song.title}, ${song.artist}" },
     ) {
-        SongArtwork(song, artwork, Modifier.fillMaxSize().hazeSource(state = haze), 208.dp)
-        // A progressively stronger blur samples the actual cover, not a flat colored strip.
+        // The actual cover occupies the rightmost 70%; its leading edge fades
+        // into the dominant color extracted from that very image.
+        Box(Modifier.matchParentSize().hazeSource(state = haze)) {
+            Box(Modifier.matchParentSize().background(dominant))
+            ArtworkImage(
+                bitmap = visual.bitmap,
+                modifier = Modifier
+                    .align(Alignment.CenterEnd)
+                    .fillMaxWidth(0.70f)
+                    .fillMaxHeight()
+                    .graphicsLayer { compositingStrategy = CompositingStrategy.Offscreen }
+                    .drawWithContent {
+                        drawContent()
+                        drawRect(brush = coverMask, blendMode = BlendMode.DstIn)
+                    },
+            )
+        }
+        // Retain the previous soft, gradually fading blur behind the song labels.
         Box(
-            Modifier.align(Alignment.BottomCenter).fillMaxWidth().height(120.dp).hazeBlur(
+            Modifier.align(Alignment.BottomCenter).fillMaxWidth().height(86.dp).hazeBlur(
                 input = input,
-                style = style,
+                style = blurStyle,
                 performanceMode = HazePerformanceMode.Quality,
             ),
         )
         Box(Modifier.matchParentSize().background(legibility))
-        Column(modifier = Modifier.align(Alignment.BottomStart).padding(horizontal = 15.dp, vertical = 14.dp)) {
+        Column(
+            modifier = Modifier.align(Alignment.BottomStart).fillMaxWidth(0.61f)
+                .padding(start = 15.dp, end = 8.dp, bottom = 15.dp),
+        ) {
             Text(
                 song.title,
                 color = Color.White,
-                fontSize = 16.sp,
-                lineHeight = 19.sp,
+                fontSize = 18.sp,
+                lineHeight = 21.sp,
                 fontWeight = FontWeight.SemiBold,
-                maxLines = 1,
+                maxLines = 3,
                 overflow = TextOverflow.Ellipsis,
             )
+            Spacer(Modifier.height(3.dp))
             Text(
                 song.artist,
-                color = Color.White.copy(alpha = 0.78f),
-                fontSize = 12.sp,
-                lineHeight = 15.sp,
-                maxLines = 1,
+                color = Color.White.copy(alpha = 0.82f),
+                fontSize = 13.sp,
+                lineHeight = 16.sp,
+                maxLines = 2,
                 overflow = TextOverflow.Ellipsis,
             )
         }
@@ -347,34 +471,47 @@ private fun SongGridCard(
     modifier: Modifier = Modifier,
 ) {
     val colors = MaterialTheme.colorScheme
+    val visual by rememberArtworkVisual(song, artwork, 96.dp)
+    val dark = colors.background.luminance() < 0.5f
+    val cardColor = visual.dominant?.let { rgb ->
+        lerp(colors.background, Color(rgb), if (dark) 0.34f else 0.18f)
+    } ?: colors.surfaceVariant
+    val shape = RoundedCornerShape(15.dp)
+    val border = remember(dark) {
+        if (dark) Brush.linearGradient(listOf(Color.White.copy(alpha = 0.34f), Color.White.copy(alpha = 0.08f), Color.White.copy(alpha = 0.20f)))
+        else Brush.linearGradient(listOf(Color.White.copy(alpha = 0.90f), Color.Black.copy(alpha = 0.20f), Color.White.copy(alpha = 0.70f)))
+    }
     Column(
         modifier = modifier
-            .clip(RoundedCornerShape(12.dp))
+            .heightIn(min = 154.dp)
+            .clip(shape)
+            .background(cardColor)
+            .border(0.8.dp, border, shape)
             .clickable(role = Role.Button, onClick = onClick)
-            .semantics { contentDescription = "${song.title}, ${song.artist}" },
+            .semantics { contentDescription = "${song.title}, ${song.artist}" }
+            .padding(5.dp),
     ) {
-        Box(Modifier.fillMaxWidth().aspectRatio(1f).clip(RoundedCornerShape(16.dp))) {
-            SongArtwork(song, artwork, Modifier.fillMaxSize(), 180.dp)
-            if (playing) PlayingBadge(Modifier.align(Alignment.TopEnd).padding(8.dp))
+        Box(Modifier.fillMaxWidth().aspectRatio(1f).clip(RoundedCornerShape(10.dp))) {
+            ArtworkImage(visual.bitmap, Modifier.fillMaxSize())
+            if (playing) PlayingBadge(Modifier.align(Alignment.TopEnd).padding(4.dp))
         }
+        Spacer(Modifier.height(6.dp))
+        // Natural-height text wraps instead of chopping long song or artist names.
         Text(
             song.title,
             color = colors.onBackground,
-            fontSize = 14.sp,
-            lineHeight = 17.sp,
+            fontSize = 12.sp,
+            lineHeight = 14.sp,
             fontWeight = FontWeight.SemiBold,
-            maxLines = 1,
-            overflow = TextOverflow.Ellipsis,
-            modifier = Modifier.padding(top = 7.dp),
         )
+        Spacer(Modifier.height(3.dp))
         Text(
             song.artist,
-            color = colors.onBackground.copy(alpha = 0.62f),
-            fontSize = 12.sp,
-            lineHeight = 15.sp,
-            maxLines = 1,
-            overflow = TextOverflow.Ellipsis,
+            color = colors.onBackground.copy(alpha = 0.68f),
+            fontSize = 11.sp,
+            lineHeight = 13.sp,
         )
+        Spacer(Modifier.height(3.dp))
     }
 }
 
@@ -385,67 +522,98 @@ internal fun SongListRow(
     playing: Boolean,
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
+    showMore: Boolean = false,
 ) {
     val colors = MaterialTheme.colorScheme
     Row(
-        modifier = modifier
-            .fillMaxWidth()
-            .height(62.dp)
-            .clip(RoundedCornerShape(12.dp))
-            .clickable(role = Role.Button, onClick = onClick)
-            .semantics { contentDescription = "${song.title}, ${song.artist}" },
+        modifier = modifier.fillMaxWidth().height(62.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        Box(Modifier.size(54.dp).clip(RoundedCornerShape(10.dp))) {
-            SongArtwork(song, artwork, Modifier.fillMaxSize(), 54.dp)
+        Row(
+            modifier = Modifier
+                .weight(1f)
+                .fillMaxHeight()
+                .clip(RoundedCornerShape(12.dp))
+                .clickable(role = Role.Button, onClick = onClick)
+                .semantics { contentDescription = "${song.title}, ${song.artist}" },
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Box(Modifier.size(54.dp).clip(RoundedCornerShape(10.dp))) {
+                SongArtwork(song, artwork, Modifier.fillMaxSize(), 54.dp)
+            }
+            Spacer(Modifier.width(10.dp))
+            Column(modifier = Modifier.weight(1f)) {
+                Text(
+                    song.title,
+                    color = if (playing) colors.primary else colors.onBackground,
+                    fontSize = 15.sp,
+                    lineHeight = 18.sp,
+                    fontWeight = FontWeight.Medium,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
+                Text(
+                    song.artist,
+                    color = colors.onBackground.copy(alpha = 0.59f),
+                    fontSize = 12.sp,
+                    lineHeight = 15.sp,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
+            }
+            if (playing) {
+                Icon(
+                    painter = painterResource(R.drawable.ic_onboarding_music),
+                    contentDescription = "Playing",
+                    tint = colors.primary,
+                    modifier = Modifier.padding(start = 6.dp, end = 3.dp).size(17.dp),
+                )
+            }
         }
-        Spacer(Modifier.width(11.dp))
-        Column(modifier = Modifier.weight(1f)) {
-            Text(
-                song.title,
-                color = if (playing) colors.primary else colors.onBackground,
-                fontSize = 15.sp,
-                lineHeight = 18.sp,
-                fontWeight = FontWeight.Medium,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-            )
-            Text(
-                song.artist,
-                color = colors.onBackground.copy(alpha = 0.59f),
-                fontSize = 12.sp,
-                lineHeight = 15.sp,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-            )
+        if (showMore) {
+            // Outside the song click target: this placeholder intentionally does nothing.
+            Box(Modifier.size(36.dp), contentAlignment = Alignment.Center) {
+                Icon(
+                    painter = painterResource(R.drawable.ic_more_vert),
+                    contentDescription = null,
+                    tint = colors.onBackground.copy(alpha = 0.55f),
+                    modifier = Modifier.size(20.dp),
+                )
+            }
         }
-        if (playing) {
-            Icon(
-                painter = painterResource(R.drawable.ic_onboarding_music),
-                contentDescription = "Playing",
-                tint = colors.primary,
-                modifier = Modifier.padding(start = 8.dp, end = 3.dp).size(17.dp),
-            )
-        }
+    }
+}
+
+private data class ArtworkVisual(val bitmap: Bitmap? = null, val dominant: Int? = null)
+
+@Composable
+private fun rememberArtworkVisual(song: Song, artwork: AlbumArtworkLoader, requestedSize: Dp): State<ArtworkVisual> {
+    val requestedPx = with(LocalDensity.current) { requestedSize.roundToPx() }
+    return produceState(ArtworkVisual(), song.id, song.dateModified, requestedPx, artwork) {
+        value = ArtworkVisual()
+        val bitmap = artwork.load(song, requestedPx)
+        value = ArtworkVisual(bitmap = bitmap)
+        if (bitmap != null) value = ArtworkVisual(bitmap, artwork.dominantColor(song, bitmap))
     }
 }
 
 @Composable
 internal fun SongArtwork(song: Song, artwork: AlbumArtworkLoader, modifier: Modifier, requestedSize: Dp) {
-    val colors = MaterialTheme.colorScheme
     val requestedPx = with(LocalDensity.current) { requestedSize.roundToPx() }
     val bitmap by produceState<Bitmap?>(null, song.id, song.dateModified, requestedPx, artwork) {
         value = null
         value = artwork.load(song, requestedPx)
     }
-    Box(
-        modifier = modifier.background(colors.surfaceVariant),
-        contentAlignment = Alignment.Center,
-    ) {
-        val image = bitmap
-        if (image != null) {
+    ArtworkImage(bitmap, modifier)
+}
+
+@Composable
+private fun ArtworkImage(bitmap: Bitmap?, modifier: Modifier) {
+    val colors = MaterialTheme.colorScheme
+    Box(modifier = modifier.background(colors.surfaceVariant), contentAlignment = Alignment.Center) {
+        if (bitmap != null) {
             Image(
-                bitmap = image.asImageBitmap(),
+                bitmap = bitmap.asImageBitmap(),
                 contentDescription = null,
                 contentScale = ContentScale.Crop,
                 modifier = Modifier.fillMaxSize(),
@@ -506,8 +674,8 @@ internal fun MusicListPage(
         state = listState,
         modifier = modifier.fillMaxSize(),
         contentPadding = PaddingValues(
-            start = 20.dp,
-            end = 20.dp,
+            start = ContentSidePadding,
+            end = ContentSidePadding,
             top = statusInset + 24.dp,
             bottom = bottomPadding,
         ),
@@ -576,74 +744,6 @@ private fun LibraryMessage(message: String, inset: Boolean = true) {
         color = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.62f),
         fontSize = 14.sp,
         lineHeight = 20.sp,
-        modifier = Modifier.padding(start = if (inset) 20.dp else 0.dp, end = if (inset) 20.dp else 0.dp, top = 24.dp),
+        modifier = Modifier.padding(start = if (inset) ContentSidePadding else 0.dp, end = if (inset) ContentSidePadding else 0.dp, top = 24.dp),
     )
-}
-
-@Composable
-internal fun MiniPlayer(
-    song: Song,
-    artwork: AlbumArtworkLoader,
-    playing: Boolean,
-    loading: Boolean,
-    error: String?,
-    onToggle: () -> Unit,
-    onClose: () -> Unit,
-    modifier: Modifier = Modifier,
-) {
-    val colors = MaterialTheme.colorScheme
-    val dark = colors.background.luminance() < 0.5f
-    val surface = if (dark) Color(0xFF242226) else Color(0xFFF5EFED)
-    Row(
-        modifier = modifier
-            .fillMaxWidth()
-            .heightIn(min = 66.dp)
-            .clip(RoundedCornerShape(20.dp))
-            .background(surface)
-            .border(0.7.dp, colors.onBackground.copy(alpha = 0.08f), RoundedCornerShape(20.dp))
-            .padding(start = 9.dp, end = 4.dp, top = 7.dp, bottom = 7.dp),
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        SongArtwork(song, artwork, Modifier.size(50.dp).clip(RoundedCornerShape(12.dp)), 50.dp)
-        Spacer(Modifier.width(11.dp))
-        Column(Modifier.weight(1f)) {
-            Text(
-                song.title,
-                color = colors.onBackground,
-                fontSize = 14.sp,
-                lineHeight = 17.sp,
-                fontWeight = FontWeight.SemiBold,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-            )
-            Text(
-                error ?: song.artist,
-                color = if (error != null) colors.primary else colors.onBackground.copy(alpha = 0.60f),
-                fontSize = 12.sp,
-                lineHeight = 15.sp,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-            )
-        }
-        IconButton(onClick = onToggle, modifier = Modifier.size(42.dp)) {
-            if (loading) {
-                CircularProgressIndicator(modifier = Modifier.size(20.dp), strokeWidth = 2.dp, color = colors.primary)
-            } else {
-                Icon(
-                    painter = painterResource(if (playing) R.drawable.ic_pause else R.drawable.ic_play),
-                    contentDescription = if (playing) "Pause" else "Play",
-                    tint = colors.primary,
-                    modifier = Modifier.size(23.dp),
-                )
-            }
-        }
-        IconButton(onClick = onClose, modifier = Modifier.size(32.dp)) {
-            Icon(
-                painter = painterResource(R.drawable.ic_close),
-                contentDescription = "Close player",
-                tint = colors.onBackground.copy(alpha = 0.60f),
-                modifier = Modifier.size(17.dp),
-            )
-        }
-    }
 }

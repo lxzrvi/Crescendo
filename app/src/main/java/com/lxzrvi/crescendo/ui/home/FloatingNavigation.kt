@@ -146,7 +146,7 @@ internal fun FloatingNavigation(
         .coerceIn(0f, 1f)
 
     BoxWithConstraints(modifier = Modifier.fillMaxSize()) {
-        val edge = 18.dp
+        val edge = ContentSidePadding
         val gap = 10.dp
         val barHeight = 64.dp // Prismal's actual bottom-tabs capsule height.
         val availableWidth = (maxWidth - edge * 2).coerceAtLeast(barHeight * 2 + gap)
