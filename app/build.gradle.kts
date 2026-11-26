@@ -63,6 +63,7 @@ dependencies {
     // Haze 2 uses a separate core module and typed blur effect.
     implementation("dev.chrisbanes.haze:haze:2.1.0")
     implementation("dev.chrisbanes.haze:haze-blur:2.1.0")
+    implementation("dev.chrisbanes.haze:haze-glass:2.1.0")
 
     debugImplementation("androidx.compose.ui:ui-tooling")
 }

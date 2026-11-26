@@ -4,6 +4,12 @@ package com.lxzrvi.crescendo.ui.home
 
 import androidx.activity.compose.BackHandler
 import androidx.annotation.DrawableRes
+import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.slideInHorizontally
+import androidx.compose.animation.slideOutHorizontally
+import androidx.compose.animation.togetherWith
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.tween
@@ -13,6 +19,7 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.asPaddingValues
@@ -24,44 +31,50 @@ import androidx.compose.foundation.layout.ime
 import androidx.compose.foundation.layout.isImeVisible
 import androidx.compose.foundation.layout.navigationBars
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.statusBarsPadding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.statusBars
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.State
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.graphics.lerp
 import androidx.compose.ui.graphics.luminance
-import androidx.compose.ui.layout.onGloballyPositioned
-import androidx.compose.ui.layout.onSizeChanged
-import androidx.compose.ui.layout.positionInRoot
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.lxzrvi.crescendo.R
 import com.lxzrvi.crescendo.ui.onboarding.GradientBlobBackground
+import dev.chrisbanes.haze.HazeInput
+import dev.chrisbanes.haze.HazeSourceSelection
 import dev.chrisbanes.haze.hazeSource
 import dev.chrisbanes.haze.rememberHazeState
-import kotlinx.coroutines.delay
+import kotlin.math.roundToInt
+
+internal const val PAGE_SOURCE_KEY = "page"
+internal const val NAV_SOURCE_KEY = "navigation-shell"
 
 internal enum class Destination(
     val label: String,
@@ -100,15 +113,18 @@ internal data class SampleCard(val destination: Destination, val number: Int) {
 private val searchableSamples = listOf(Destination.Home, Destination.Playlist, Destination.Library)
     .flatMap { destination -> (1..36).map { SampleCard(destination, it) } }
 
-internal fun placeholderSurfaceColor(dark: Boolean, number: Int): Color =
-    if (dark) Color.White.copy(alpha = if (number % 2 == 0) 0.09f else 0.065f)
-    else Color.Black.copy(alpha = if (number % 2 == 0) 0.055f else 0.035f)
+private val samplePalette = listOf(
+    Color(0xFFF1746B), Color(0xFFAF86EC), Color(0xFF43BDB1), Color(0xFFF1AD55),
+    Color(0xFF6D9EEF), Color(0xFFEE82AC), Color(0xFF91BF65), Color(0xFFE68758),
+)
 
-/** Text-only sample pages with an independently animated nav and search control. */
+private fun sampleAccent(card: SampleCard): Color =
+    samplePalette[(card.number - 1 + card.destination.ordinal * 3) % samplePalette.size]
+
+/** Sample pages, captured as one live source beneath the independently floating controls. */
 @Composable
 fun HomeScreen(gradientPhase: State<Float>, modifier: Modifier = Modifier) {
     val colors = MaterialTheme.colorScheme
-    val dark = colors.background.luminance() < 0.5f
     val context = LocalContext.current
     val keyboard = LocalSoftwareKeyboardController.current
     val focusManager = LocalFocusManager.current
@@ -119,36 +135,41 @@ fun HomeScreen(gradientPhase: State<Float>, modifier: Modifier = Modifier) {
     var previousTab by rememberSaveable { mutableStateOf(Destination.Home) }
     var query by rememberSaveable { mutableStateOf("") }
     val hazeState = rememberHazeState()
-    val fadeIn = remember { Animatable(0f) }
-    val rootSize = remember { mutableStateOf(IntSize.Zero) }
-    val listOrigin = remember { mutableStateOf(Offset.Zero) }
+    val pageInput = remember(hazeState) {
+        HazeInput.Sources(
+            state = hazeState,
+            selection = HazeSourceSelection.All.where { it.key == PAGE_SOURCE_KEY },
+        )
+    }
+    val selectorInput = remember(hazeState) {
+        HazeInput.Sources(
+            state = hazeState,
+            selection = HazeSourceSelection.All.where {
+                it.key == PAGE_SOURCE_KEY || it.key == NAV_SOURCE_KEY
+            },
+        )
+    }
+    val initialFade = remember { Animatable(0f) }
 
-    // Remember all five states independently, so returning to a page restores its scroll.
+    // Each page keeps its own list state, including while the transition shows two pages at once.
     val homeState = rememberLazyListState()
     val playlistState = rememberLazyListState()
     val libraryState = rememberLazyListState()
     val settingsState = rememberLazyListState()
     val searchState = rememberLazyListState()
-    val listState = when (destination) {
+    fun stateFor(page: Destination): LazyListState = when (page) {
         Destination.Home -> homeState
         Destination.Playlist -> playlistState
         Destination.Library -> libraryState
         Destination.Settings -> settingsState
         Destination.Search -> searchState
     }
-    val blurStyle = rememberNavigationBlurStyle(appearance, colors.background)
-    val borderOverlay = if (appearance.liveBlur && appearance.radius > 0f) {
-        navigationTint(dark, appearance.type)
-    } else navigationFallbackTint(dark)
+    val blurStyle = rememberNavigationBlurStyle(colors.background)
 
     LaunchedEffect(Unit) {
-        fadeIn.animateTo(1f, tween(500, easing = FastOutSlowInEasing))
+        initialFade.animateTo(1f, tween(500, easing = FastOutSlowInEasing))
     }
-    // Debounce slider writes while the visual result still updates on every drag frame.
-    LaunchedEffect(appearance) {
-        delay(250)
-        prefs.save(appearance)
-    }
+    LaunchedEffect(appearance) { prefs.save(appearance) }
 
     fun closeSearch() {
         keyboard?.hide()
@@ -159,8 +180,8 @@ fun HomeScreen(gradientPhase: State<Float>, modifier: Modifier = Modifier) {
     BackHandler(enabled = destination != Destination.Home) {
         when {
             destination == Destination.Search && imeVisible -> {
+                // Keeping focus until the IME finishes closing lets imePadding animate with it.
                 keyboard?.hide()
-                focusManager.clearFocus(force = true)
             }
             destination == Destination.Search -> closeSearch()
             else -> {
@@ -173,32 +194,46 @@ fun HomeScreen(gradientPhase: State<Float>, modifier: Modifier = Modifier) {
     Box(
         modifier = modifier
             .fillMaxSize()
-            .background(colors.background)
-            .onSizeChanged { rootSize.value = it },
+            .background(colors.background),
     ) {
-        // Both floating controls sample this actual full-screen source, including live scroll.
         Box(
             modifier = Modifier
                 .fillMaxSize()
-                .hazeSource(state = hazeState)
+                .hazeSource(state = hazeState, zIndex = 0f, key = PAGE_SOURCE_KEY)
                 .background(colors.background),
         ) {
             GradientBlobBackground(
                 phase = gradientPhase,
                 modifier = Modifier.fillMaxSize(),
             )
-            key(destination) {
+            AnimatedContent(
+                targetState = destination,
+                modifier = Modifier.fillMaxSize(),
+                transitionSpec = {
+                    val direction = if (targetState.ordinal >= initialState.ordinal) 1 else -1
+                    (fadeIn(tween(300, easing = FastOutSlowInEasing)) +
+                        slideInHorizontally(tween(340, easing = FastOutSlowInEasing)) { width ->
+                            (width * 0.045f * direction).roundToInt()
+                        }) togetherWith
+                        (fadeOut(tween(200, easing = FastOutSlowInEasing)) +
+                            slideOutHorizontally(tween(300, easing = FastOutSlowInEasing)) { width ->
+                                (-width * 0.025f * direction).roundToInt()
+                            })
+                },
+                label = "pageTransition",
+            ) { page ->
                 PlaceholderPage(
-                    destination = destination,
+                    destination = page,
                     query = query,
                     appearance = appearance,
                     onAppearanceChange = { appearance = it },
-                    listState = listState,
-                    listOrigin = listOrigin,
-                    fadeIn = fadeIn,
+                    listState = stateFor(page),
+                    fadeIn = initialFade,
                 )
             }
         }
+
+        StatusBarBackdrop(input = pageInput, liveBlur = appearance.liveBlur)
 
         FloatingNavigation(
             selected = destination,
@@ -218,18 +253,13 @@ fun HomeScreen(gradientPhase: State<Float>, modifier: Modifier = Modifier) {
                 }
             },
             onReturnToTab = { closeSearch() },
-            onSearchDone = {
-                keyboard?.hide()
-                focusManager.clearFocus(force = true)
-            },
+            onSearchDone = { keyboard?.hide() },
             imeVisible = imeVisible,
             hazeState = hazeState,
+            pageInput = pageInput,
+            selectorInput = selectorInput,
             blurStyle = blurStyle,
-            borderOverlay = borderOverlay,
-            gradientPhase = gradientPhase,
-            rootSize = rootSize,
-            listOrigin = listOrigin,
-            listState = listState,
+            liveBlur = appearance.liveBlur,
         )
     }
 }
@@ -241,11 +271,11 @@ private fun PlaceholderPage(
     appearance: NavigationAppearance,
     onAppearanceChange: (NavigationAppearance) -> Unit,
     listState: LazyListState,
-    listOrigin: androidx.compose.runtime.MutableState<Offset>,
     fadeIn: Animatable<Float, *>,
 ) {
     val colors = MaterialTheme.colorScheme
     val dark = colors.background.luminance() < 0.5f
+    val statusInset = WindowInsets.statusBars.asPaddingValues().calculateTopPadding()
     val bottomInset = WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding()
     val imeInset = if (destination == Destination.Search) WindowInsets.ime.asPaddingValues().calculateBottomPadding() else 0.dp
     val searchResults = remember(query) {
@@ -266,14 +296,12 @@ private fun PlaceholderPage(
         state = listState,
         modifier = Modifier
             .fillMaxSize()
-            .statusBarsPadding()
-            .onGloballyPositioned { listOrigin.value = it.positionInRoot() }
             .graphicsLayer { alpha = fadeIn.value },
         contentPadding = PaddingValues(
             start = 20.dp,
-            top = 28.dp,
+            // Padding the content, not the viewport, lets scrolling cards pass behind the status bar.
+            top = statusInset + 28.dp,
             end = 20.dp,
-            // The final result stays reachable above the search bar and keyboard.
             bottom = maxOf(bottomInset, imeInset) + 104.dp,
         ),
         verticalArrangement = Arrangement.spacedBy(12.dp),
@@ -328,30 +356,59 @@ private fun PlaceholderPage(
 @Composable
 private fun PlaceholderCard(card: SampleCard, dark: Boolean) {
     val colors = MaterialTheme.colorScheme
+    val accent = sampleAccent(card)
+    val neighboringAccent = samplePalette[(card.number + card.destination.ordinal * 3 + 2) % samplePalette.size]
     val shape = RoundedCornerShape(18.dp)
-    val cardBorder = colors.onBackground.copy(alpha = if (dark) 0.08f else 0.06f)
-
-    Column(
+    val surface = remember(accent, neighboringAccent, dark) {
+        Brush.linearGradient(
+            listOf(
+                accent.copy(alpha = if (dark) 0.24f else 0.22f),
+                neighboringAccent.copy(alpha = if (dark) 0.12f else 0.11f),
+                (if (dark) Color.White else Color.Black).copy(alpha = if (dark) 0.05f else 0.025f),
+            ),
+        )
+    }
+    val artwork = remember(accent) {
+        Brush.linearGradient(listOf(lerp(accent, Color.Black, 0.08f), lerp(accent, Color.Black, 0.40f)))
+    }
+    Row(
         modifier = Modifier
             .fillMaxWidth()
-            .heightIn(min = 94.dp)
+            .heightIn(min = (94 + (card.number % 3) * 8).dp)
             .clip(shape)
-            .background(placeholderSurfaceColor(dark, card.number))
-            .border(1.dp, cardBorder, shape)
-            .padding(horizontal = 18.dp, vertical = 16.dp),
-        verticalArrangement = Arrangement.Center,
+            .background(surface)
+            .border(1.dp, accent.copy(alpha = if (dark) 0.25f else 0.22f), shape)
+            .padding(horizontal = 16.dp, vertical = 16.dp),
+        verticalAlignment = Alignment.CenterVertically,
     ) {
-        Text(
-            text = card.title,
-            color = colors.onBackground,
-            style = MaterialTheme.typography.titleSmall,
-            fontWeight = FontWeight.SemiBold,
-        )
-        Spacer(Modifier.height(5.dp))
-        Text(
-            text = card.destination.cardDetail,
-            color = colors.onBackground.copy(alpha = 0.64f),
-            style = MaterialTheme.typography.bodySmall,
-        )
+        Box(
+            modifier = Modifier
+                .size(52.dp)
+                .clip(RoundedCornerShape(14.dp))
+                .background(artwork),
+            contentAlignment = Alignment.Center,
+        ) {
+            Icon(
+                painter = painterResource(card.destination.icon),
+                contentDescription = null,
+                tint = Color.White.copy(alpha = 0.94f),
+                modifier = Modifier.size(23.dp),
+            )
+        }
+        Spacer(Modifier.width(14.dp))
+        Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.Center) {
+            Text(
+                text = card.title,
+                color = colors.onBackground,
+                style = MaterialTheme.typography.titleSmall,
+                fontWeight = FontWeight.SemiBold,
+            )
+            Spacer(Modifier.height(5.dp))
+            Text(
+                text = card.destination.cardDetail,
+                color = colors.onBackground.copy(alpha = 0.66f),
+                style = MaterialTheme.typography.bodySmall,
+            )
+        }
     }
 }
