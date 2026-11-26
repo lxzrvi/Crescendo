@@ -99,8 +99,9 @@ fun CrescendoLoader(
                     val s = unit * (0.96f + 0.04f * b)       // halka breathing
                     scale(s, s, pivot = Offset.Zero)
                 }) {
-                    // Soft fill
-                    drawPath(iconPath, color.copy(alpha = 0.10f + 0.06f * b), style = Fill)
+                    // Keep the mark solid in the same white/dark ink as the traveling icon;
+                    // the animated comet remains visible around its outer edge.
+                    drawPath(iconPath, color, style = Fill)
 
                     // Comet: head se peeche tak fade (glow + sharp line)
                     for (i in 0 until slices) {

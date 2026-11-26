@@ -32,6 +32,7 @@ import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.input.pointer.PointerEventPass
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.semantics.Role
@@ -112,13 +113,16 @@ private fun BorderlessAction(
         animationSpec = tween(if (touching) 120 else 350),
         label = "touchGlow",
     )
-    val indicatorColor = colors.primary
+    // Secondary actions use neutral gray for both their surface and touch-following light.
+    val dark = colors.background.luminance() < 0.5f
+    val surfaceColor = if (dark) Color(0xFF292929) else Color(0xFFECECEC)
+    val indicatorColor = if (dark) Color(0xFFD0D0D0) else Color(0xFF555555)
 
     Box(
         modifier = modifier
             .height(52.dp)
             .clip(shape)
-            .background(colors.surfaceVariant)
+            .background(surfaceColor)
             .drawBehind {
                 val strength = touchAlpha.value
                 if (strength > 0f) {

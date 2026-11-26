@@ -38,6 +38,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.navigationBarsPadding
+import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -420,7 +421,8 @@ fun OnboardingScreen(gradientPhase: State<Float>, onFinished: () -> Unit) {
                                 scaleY = size
                                 alpha = loaderReveal.value * (1f - depart)
                             },
-                        color = colors.primary,
+                        // Match the traveling mark exactly in both system themes.
+                        color = colors.onBackground,
                     )
                 }
             }
@@ -479,6 +481,8 @@ private fun PermissionStage(
                     fontSize = 72.sp,
                     color = colors.onBackground,
                     textAlign = TextAlign.Center,
+                    // Shift only the wordmark; the permission actions stay anchored.
+                    modifier = Modifier.offset(y = 20.dp),
                 )
             }
 

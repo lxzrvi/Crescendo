@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Silhouette traced from the supplied navigation-icon reference. -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="24dp"
+    android:height="24dp"
+    android:viewportWidth="24"
+    android:viewportHeight="24">
+    <path
+        android:fillColor="#FFFFFFFF"
+        android:fillType="evenOdd"
+        android:pathData="M4.15,13.33 L4.15,20.02 L4.27,20.37 L4.54,20.63 L4.85,20.75 L10.27,20.75 L10.27,15.60 L10.35,15.52 L13.69,15.52 L13.77,15.63 L13.77,20.75 L19.15,20.75 L19.54,20.60 L19.81,20.25 L19.88,19.94 L19.88,13.37 L19.81,13.21 L12.15,6.87 L11.96,6.83 L11.73,6.98 L4.50,12.94 Z M1.00,12.02 L1.08,12.37 L2.04,13.48 L2.19,13.56 L2.38,13.56 L2.54,13.48 L11.88,5.71 L12.08,5.67 L13.35,6.67 L14.12,7.37 L21.42,13.44 L21.65,13.56 L21.85,13.56 L22.00,13.48 L22.81,12.56 L23.00,12.25 L23.00,11.94 L22.77,11.67 L20.23,9.60 L19.88,9.21 L19.88,3.63 L19.81,3.44 L19.58,3.29 L16.69,3.29 L16.54,3.37 L16.38,3.60 L16.38,6.25 L16.27,6.29 L12.85,3.44 L12.31,3.25 L11.73,3.25 L11.42,3.33 L11.12,3.48 L1.38,11.56 L1.04,11.90 Z" />
+</vector>
