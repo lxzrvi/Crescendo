@@ -2,8 +2,11 @@ package com.lxzrvi.crescendo.ui.home
 
 import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.interaction.collectIsPressedAsState
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Row
@@ -31,9 +34,14 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.focus.onFocusChanged
+import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.Outline
+import androidx.compose.ui.graphics.Path
+import androidx.compose.ui.graphics.Shape
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.graphics.drawscope.DrawScope
+import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.platform.LocalDensity
@@ -43,13 +51,20 @@ import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.unit.Density
+import androidx.compose.ui.unit.LayoutDirection
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.styropyr0.prismal.PrismalBackdrop
+import com.styropyr0.prismal.depth.PrismalDepthShadow
+import com.styropyr0.prismal.drawPlainPrismalGlass
 import com.styropyr0.prismal.drawPrismalGlass
 import com.styropyr0.prismal.effects.applyPrismalGlassEffects
 import com.styropyr0.prismal.shapes.PrismalCapsule
 import com.styropyr0.prismal.sources.rememberPrismalCanvasSource
+import com.styropyr0.prismal.specular.PrismalSpecular
+import kotlin.math.PI
+import kotlin.math.sin
+import kotlin.math.sqrt
 
 private val navTabs = listOf(Destination.Home, Destination.Playlist, Destination.Library, Destination.Settings)
 
@@ -75,6 +90,9 @@ internal fun FloatingNavigation(
     val activeIndex = navTabs.indexOf(activeTab).coerceAtLeast(0)
     val density = LocalDensity.current
     var searchFocused by remember { mutableStateOf(false) }
+    var navPressProgress by remember { mutableStateOf(0f) }
+    val searchInteraction = remember { MutableInteractionSource() }
+    val searchPressed by searchInteraction.collectIsPressedAsState()
     LaunchedEffect(searching) {
         if (!searching) searchFocused = false
     }
@@ -96,6 +114,15 @@ internal fun FloatingNavigation(
         animationSpec = tween(220, easing = FastOutSlowInEasing),
         label = "searchKeyboardWidth",
     )
+    val touchConnection by animateFloatAsState(
+        targetValue = maxOf(navPressProgress, if (searchPressed) 1f else 0f),
+        animationSpec = spring(dampingRatio = 0.82f, stiffness = 380f),
+        label = "liquidTouchConnection",
+    )
+    // Joining, stretching and splitting is synchronized to the capsule morph.
+    val transitionConnection = sin((morph.coerceIn(0f, 1f) * PI).toFloat()).coerceIn(0f, 1f)
+    val connection = (maxOf(touchConnection, transitionConnection) * (1f - keyboardGrowth))
+        .coerceIn(0f, 1f)
 
     BoxWithConstraints(modifier = Modifier.fillMaxSize()) {
         val edge = 18.dp
@@ -111,6 +138,22 @@ internal fun FloatingNavigation(
         val returnAlpha = (morph * 1.35f - 0.25f).coerceIn(0f, 1f)
         val controlsEnabled = !searching && morph < 0.25f
 
+        // A real sampled-glass bridge sits beneath the two capsules. Its concave
+        // neck grows and shrinks like liquid; it has no touch target of its own.
+        if (connection > 0.005f && !(searching && searchFocused && imeVisible)) {
+            val overlap = 16.dp
+            Box(
+                modifier = Modifier
+                    .align(Alignment.BottomStart)
+                    .navigationBarsPadding()
+                    .padding(start = edge + navWidth - overlap, bottom = 14.dp)
+                    .width(gap + overlap * 2)
+                    .height(barHeight)
+                    .graphicsLayer { alpha = connection }
+                    .liquidBridge(backdrop, density, isLightTheme, connection),
+            )
+        }
+
         PrismalNavigationTabs(
             tabs = navTabs,
             selectedIndex = activeIndex,
@@ -120,6 +163,8 @@ internal fun FloatingNavigation(
             controlsEnabled = controlsEnabled,
             tabsAlpha = tabsAlpha,
             indicatorAlpha = indicatorAlpha,
+            connectionProgress = connection,
+            onPressProgress = { navPressProgress = it },
             modifier = Modifier
                 .align(Alignment.BottomStart)
                 .navigationBarsPadding()
@@ -162,7 +207,7 @@ internal fun FloatingNavigation(
                 .padding(end = edge, bottom = 14.dp)
                 .width(searchWidth)
                 .height(barHeight)
-                .prismalNavigationSurface(backdrop, density, isLightTheme)
+                .prismalNavigationSurface(backdrop, density, isLightTheme, connection)
                 .clip(PrismalCapsule()),
             contentAlignment = Alignment.Center,
         ) {
@@ -173,7 +218,13 @@ internal fun FloatingNavigation(
                         .fillMaxSize()
                         .graphicsLayer { alpha = searchIconAlpha }
                         .clip(PrismalCapsule())
-                        .clickable(enabled = !searching, role = Role.Button, onClick = onOpenSearch),
+                        .clickable(
+                            interactionSource = searchInteraction,
+                            indication = null,
+                            enabled = !searching,
+                            role = Role.Button,
+                            onClick = onOpenSearch,
+                        ),
                     contentAlignment = Alignment.Center,
                 ) {
                     Icon(
@@ -205,15 +256,19 @@ private fun Modifier.prismalNavigationSurface(
     backdrop: PrismalBackdrop,
     density: Density,
     isLightTheme: Boolean,
+    connection: Float,
 ): Modifier = drawPrismalGlass(
     backdrop = backdrop,
     shape = { PrismalCapsule() },
+    specular = { PrismalSpecular.Default.copy(alpha = 1f - connection * 0.75f) },
+    depthShadow = { PrismalDepthShadow.Default.copy(alpha = 1f - connection * 0.85f) },
     effects = {
         applyPrismalGlassEffects(
             density = density,
             adaptiveLuminance = false,
             luminance = 0.5f,
-            blurRadiusPx = with(density) { 4.dp.toPx() },
+            // Search visibly blurs the live content directly beneath it.
+            blurRadiusPx = with(density) { 10.dp.toPx() },
             refractionHeightPx = with(density) { 16.dp.toPx() },
             refractionAmountPx = with(density) { 28.dp.toPx() },
         )
@@ -225,6 +280,73 @@ private fun Modifier.prismalNavigationSurface(
         )
     },
 )
+
+/** The gap is filled by a continuously curved, live-sampled liquid neck. */
+private fun Modifier.liquidBridge(
+    backdrop: PrismalBackdrop,
+    density: Density,
+    isLightTheme: Boolean,
+    connection: Float,
+): Modifier = drawPlainPrismalGlass(
+    backdrop = backdrop,
+    shape = { LiquidBridgeShape(connection) },
+    effects = {
+        // A generic curved shape cannot use Prismal's rounded-rect lens, but can
+        // sample and blur the same page pixels as its two neighboring capsules.
+        applyPrismalGlassEffects(
+            density = density,
+            adaptiveLuminance = false,
+            luminance = 0.5f,
+            blurRadiusPx = with(density) { 6.dp.toPx() },
+            refractionHeightPx = 0f,
+            refractionAmountPx = 0f,
+        )
+    },
+    onDrawSurface = {
+        drawRect(
+            if (isLightTheme) Color(0xFFFAFAFA).copy(alpha = 0.4f)
+            else Color(0xFF121212).copy(alpha = 0.4f),
+        )
+    },
+    onDrawFront = {
+        drawPath(
+            path = LiquidBridgeShape(connection).path(size, density),
+            color = if (isLightTheme) Color.Black.copy(alpha = 0.13f) else Color.White.copy(alpha = 0.28f),
+            style = Stroke(width = with(density) { 1.dp.toPx() }),
+        )
+    },
+)
+
+private data class LiquidBridgeShape(val connection: Float) : Shape {
+    override fun createOutline(size: Size, layoutDirection: LayoutDirection, density: Density): Outline =
+        Outline.Generic(path(size, density))
+
+    fun path(size: Size, density: Density): Path {
+        val width = size.width
+        val height = size.height
+        val radius = height / 2f
+        val overlap = with(density) { 16.dp.toPx() }.coerceAtMost(width / 2f)
+        val circleX = (radius - overlap).coerceAtLeast(0f)
+        val circleY = sqrt((radius * radius - circleX * circleX).coerceAtLeast(0f))
+        val edgeY = radius - circleY
+        val tangent = if (circleY > 0f) circleX / circleY else 0f
+        val lead = overlap * 0.24f
+        val midX = width / 2f
+        val halfNeck = radius * (0.04f + 0.57f * connection.coerceIn(0f, 1f))
+        val topMiddle = radius - halfNeck
+        val bottomMiddle = radius + halfNeck
+        val path = Path().apply {
+            moveTo(0f, edgeY)
+            cubicTo(lead, edgeY + lead * tangent, midX * 0.55f, topMiddle, midX, topMiddle)
+            cubicTo(midX + midX * 0.45f, topMiddle, width - lead, edgeY + lead * tangent, width, edgeY)
+            lineTo(width, height - edgeY)
+            cubicTo(width - lead, height - edgeY - lead * tangent, midX + midX * 0.45f, bottomMiddle, midX, bottomMiddle)
+            cubicTo(midX * 0.55f, bottomMiddle, lead, height - edgeY - lead * tangent, 0f, height - edgeY)
+            close()
+        }
+        return path
+    }
+}
 
 @Composable
 private fun SearchInput(
@@ -260,12 +382,12 @@ private fun SearchInput(
             modifier = Modifier
                 .weight(1f)
                 .onFocusChanged { onFocusChanged(it.isFocused) }
-                .semantics { contentDescription = "Search sample cards" },
+                .semantics { contentDescription = "Search songs, artists, or albums" },
             decorationBox = { innerTextField ->
                 Box(contentAlignment = Alignment.CenterStart) {
                     if (query.isEmpty()) {
                         Text(
-                            text = "Search sample cards",
+                            text = "Search your music",
                             color = foreground.copy(alpha = 0.55f),
                             style = MaterialTheme.typography.bodyMedium,
                             maxLines = 1,

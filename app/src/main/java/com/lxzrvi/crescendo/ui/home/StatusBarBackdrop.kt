@@ -13,9 +13,9 @@ import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.unit.dp
 import dev.chrisbanes.haze.HazeInput
+import dev.chrisbanes.haze.HazePerformanceMode
 import dev.chrisbanes.haze.HazeProgressive
 import dev.chrisbanes.haze.blur.HazeBlurStyle
 import dev.chrisbanes.haze.blur.HazeColorEffect
@@ -25,9 +25,9 @@ import dev.chrisbanes.haze.blur.hazeBlur
 @Composable
 internal fun StatusBarBackdrop(input: HazeInput.Sources, liveBlur: Boolean) {
     val background = MaterialTheme.colorScheme.background
-    val dark = background.luminance() < 0.5f
     val statusHeight = WindowInsets.statusBars.asPaddingValues().calculateTopPadding()
-    val totalHeight = statusHeight + 24.dp
+    // Continue beneath the icons and gently fade into the real content.
+    val totalHeight = statusHeight + 32.dp
     val fadeStart = (statusHeight / totalHeight).coerceIn(0.20f, 0.80f)
     val fadeMask = remember(fadeStart) {
         Brush.verticalGradient(
@@ -36,24 +36,23 @@ internal fun StatusBarBackdrop(input: HazeInput.Sources, liveBlur: Boolean) {
             1f to Color.Transparent,
         )
     }
-    val style = remember(background, dark, fadeMask) {
+    val style = remember(fadeMask) {
         HazeBlurStyle {
             blurEnabled(true)
-            blurRadius(12.dp)
+            blurRadius(18.dp)
             noiseFactor(0f)
-            backgroundColor(background)
-            colorEffects(
-                listOf(HazeColorEffect.tint(navigationSolidColor(dark).copy(alpha = 0.22f))),
-            )
-            fallbackColorEffect(HazeColorEffect.tint(navigationSolidColor(dark)))
+            // Blur the sampled page itself, not a separately colored scrim.
+            backgroundColor(Color.Transparent)
+            colorEffects(emptyList())
+            fallbackColorEffect(HazeColorEffect.tint(Color.Transparent))
             progressive(HazeProgressive.Brush(fadeMask))
             mask(fadeMask)
         }
     }
-    val solidFade = remember(dark, fadeStart) {
+    val solidFade = remember(background, fadeStart) {
         Brush.verticalGradient(
-            0f to navigationSolidColor(dark),
-            fadeStart to navigationSolidColor(dark),
+            0f to background.copy(alpha = 0.92f),
+            fadeStart to background.copy(alpha = 0.72f),
             1f to Color.Transparent,
         )
     }
@@ -61,6 +60,12 @@ internal fun StatusBarBackdrop(input: HazeInput.Sources, liveBlur: Boolean) {
         modifier = Modifier
             .fillMaxWidth()
             .height(totalHeight)
-            .then(if (liveBlur) Modifier.hazeBlur(input = input, style = style) else Modifier.background(solidFade)),
+            .then(
+                if (liveBlur) Modifier.hazeBlur(
+                    input = input,
+                    style = style,
+                    performanceMode = HazePerformanceMode.Quality,
+                ) else Modifier.background(solidFade),
+            ),
     )
 }

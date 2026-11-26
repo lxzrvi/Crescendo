@@ -175,7 +175,7 @@ internal class GradientSampler(
     }
 }
 
-/** Shared drift keeps the gradient continuous when onboarding hands off to Home. */
+/** Shared drift keeps the gradient continuous across the onboarding pages. */
 @Composable
 fun rememberGradientPhase(): State<Float> {
     val transition = rememberInfiniteTransition(label = "blobs")

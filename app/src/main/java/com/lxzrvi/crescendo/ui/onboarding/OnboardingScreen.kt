@@ -81,9 +81,7 @@ import com.lxzrvi.crescendo.ui.components.CrescendoLoader
 import com.lxzrvi.crescendo.ui.components.CrescendoMark
 import com.lxzrvi.crescendo.ui.components.MusicNoteIcon
 import com.lxzrvi.crescendo.ui.theme.BorelFamily
-import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.delay
-import kotlinx.coroutines.launch
 
 internal const val ONBOARDING_ACTION_RADIUS_DP = 15f
 
@@ -265,22 +263,11 @@ fun OnboardingScreen(gradientPhase: State<Float>, onFinished: () -> Unit) {
     val loaderReveal = remember { Animatable(0f) }
     val loaderPulse = remember { Animatable(1f) }
     val loaderDepart = remember { Animatable(0f) }
-    val homeGlow = remember { Animatable(0f) }
-    var revealingHomeGlow by remember { mutableStateOf(false) }
     var showLoader by remember { mutableStateOf(false) }
 
-    fun glowTransform(): GradientLayerTransform {
-        val h = rootSize.height.toFloat()
-        return if (revealingHomeGlow) {
-            GradientLayerTransform(
-                y = (homeGlow.value - 1f) * h,
-                alpha = (homeGlow.value * 2f).coerceIn(0f, 1f),
-            )
-        } else {
-            // The welcome gradient simply slides down, without shifting toward the mark.
-            GradientLayerTransform(y = departure.value * h)
-        }
-    }
+    fun glowTransform(): GradientLayerTransform =
+        // The welcome gradient leaves with welcome and never returns for Home.
+        GradientLayerTransform(y = departure.value * rootSize.height.toFloat())
 
     LaunchedEffect(finishing) {
         if (!finishing) {
@@ -289,8 +276,6 @@ fun OnboardingScreen(gradientPhase: State<Float>, onFinished: () -> Unit) {
             loaderReveal.snapTo(0f)
             loaderPulse.snapTo(1f)
             loaderDepart.snapTo(0f)
-            homeGlow.snapTo(0f)
-            revealingHomeGlow = false
             showLoader = false
         } else {
             // Freeze a still-settling welcome glow so only its downward slide drives it.
@@ -305,16 +290,9 @@ fun OnboardingScreen(gradientPhase: State<Float>, onFinished: () -> Unit) {
                 return@LaunchedEffect
             }
 
-            // Reset the invisible glow, then bring it back from above for Home.
-            bgPosition.snapTo(0f)
-            revealingHomeGlow = true
-            coroutineScope {
-                launch { homeGlow.animateTo(1f, tween(1300, easing = FastOutSlowInEasing)) }
-                launch {
-                    loaderPulse.animateTo(1.08f, tween(220, easing = FastOutSlowInEasing))
-                    loaderDepart.animateTo(1f, tween(700, easing = FastOutSlowInEasing))
-                }
-            }
+            // Continue on the plain app background rather than reintroducing the glow.
+            loaderPulse.animateTo(1.08f, tween(220, easing = FastOutSlowInEasing))
+            loaderDepart.animateTo(1f, tween(700, easing = FastOutSlowInEasing))
             if (hasMusicAccess(context)) onFinished() else refreshPermissions()
         }
     }

@@ -86,7 +86,7 @@ internal fun NavigationBlurSettings(
             Column(modifier = Modifier.weight(1f)) {
                 Text("Live blur", color = colors.onBackground, fontWeight = FontWeight.Medium)
                 Text(
-                    text = if (appearance.liveBlur) "Prismal · 4 dp on floating controls" else "Off · solid floating controls",
+                    text = if (appearance.liveBlur) "Live glass on floating controls" else "Off · solid floating controls",
                     color = colors.onBackground.copy(alpha = 0.64f),
                     style = MaterialTheme.typography.bodySmall,
                 )

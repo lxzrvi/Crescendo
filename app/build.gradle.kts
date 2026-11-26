@@ -60,6 +60,9 @@ dependencies {
     implementation("androidx.compose.foundation:foundation")
     implementation("androidx.compose.material3:material3")
 
+    // Foreground in-app playback lets Crescendo build its own real play history.
+    implementation("androidx.media3:media3-exoplayer:1.11.1")
+
     // Haze still supplies the progressive blur behind the status bar.
     implementation("dev.chrisbanes.haze:haze:2.1.0")
     implementation("dev.chrisbanes.haze:haze-blur:2.1.0")

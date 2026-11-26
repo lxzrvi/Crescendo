@@ -35,6 +35,7 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
@@ -119,6 +120,8 @@ internal fun PrismalNavigationTabs(
     controlsEnabled: Boolean,
     tabsAlpha: Float,
     indicatorAlpha: Float,
+    connectionProgress: Float,
+    onPressProgress: (Float) -> Unit,
     modifier: Modifier = Modifier,
 ) {
     val tabsCount = tabs.size
@@ -130,11 +133,12 @@ internal fun PrismalNavigationTabs(
     val view = LocalView.current
     val latestSelectedIndex by rememberUpdatedState(selectedIndex)
     val latestOnTabSelected by rememberUpdatedState(onTabSelected)
+    val latestOnPressProgress by rememberUpdatedState(onPressProgress)
     var dragHighlightIndex by remember { mutableStateOf<Int?>(null) }
     var dragging by remember { mutableStateOf(false) }
     val containerColor = if (isLightTheme) Color(0xFFFAFAFA).copy(alpha = 0.4f)
     else Color(0xFF121212).copy(alpha = 0.4f)
-    val dropletTint = if (isLightTheme) Color(0xFF007AFF) else Color(0xFF409CFF)
+    val dropletTint = MaterialTheme.colorScheme.primary
     // The Prismal catalog uses a lower press glow in dark mode.
     val pressGlow = if (isLightTheme) 0.7f else 0.25f
 
@@ -168,6 +172,14 @@ internal fun PrismalNavigationTabs(
             }
             if (!dragging) dragHighlightIndex = null
         }
+        // Let the neighboring Search surface join only as the raised droplet reaches it.
+        LaunchedEffect(motion, controlsEnabled) {
+            snapshotFlow {
+                val proximity = ((motion.value - (tabsCount - 1.65f)) / 0.65f).coerceIn(0f, 1f)
+                if (controlsEnabled) motion.pressProgress.coerceIn(0f, 1f) * proximity else 0f
+            }.collect { latestOnPressProgress(it) }
+        }
+        DisposableEffect(motion) { onDispose { latestOnPressProgress(0f) } }
         LaunchedEffect(view) {
             snapshotFlow { dragHighlightIndex ?: latestSelectedIndex }
                 .drop(1)
@@ -286,7 +298,8 @@ internal fun PrismalNavigationTabs(
                     .drawPrismalGlass(
                         backdrop = backdrop,
                         shape = { PrismalCapsule() },
-                        specular = { PrismalSpecular.Default },
+                        specular = { PrismalSpecular.Default.copy(alpha = 1f - connectionProgress * 0.75f) },
+                        depthShadow = { PrismalDepthShadow.Default.copy(alpha = 1f - connectionProgress * 0.85f) },
                         effects = {
                             applyPrismalGlassEffects(
                                 density = density,
@@ -324,7 +337,7 @@ internal fun PrismalNavigationTabs(
             }
 
             // As in Prismal, the second (invisible) 56 dp row is the droplet's
-            // live nested source, including blue-tinted icons and labels.
+            // live nested source, recolored with Crescendo's red accent.
             Row(
                 Modifier
                     .clearAndSetSemantics {}
@@ -465,7 +478,8 @@ private fun RowScope.PrismalNavigationItem(
             contentDescription = destination.label
             if (enabled) onClick { onSelect(); true } else disabled()
         }
-    val foreground = if (isLightTheme) Color.Black else Color.White
+    val foreground = if (selected && !captureOnly) MaterialTheme.colorScheme.primary
+    else if (isLightTheme) Color.Black else Color.White
     Column(
         Modifier
             .clip(PrismalCapsule())

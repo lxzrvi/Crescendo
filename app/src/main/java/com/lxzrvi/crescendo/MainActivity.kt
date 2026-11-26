@@ -31,7 +31,6 @@ class MainActivity : ComponentActivity() {
                     mutableStateOf(prefs.isOnboardingComplete() && hasMusicAccess(this@MainActivity))
                 }
                 val lifecycleOwner = LocalLifecycleOwner.current
-                val gradientPhase = rememberGradientPhase()
 
                 // If library access is revoked in Settings, Home cannot bypass the music gate.
                 DisposableEffect(lifecycleOwner) {
@@ -45,8 +44,9 @@ class MainActivity : ComponentActivity() {
                 }
 
                 if (onboardingComplete) {
-                    HomeScreen(gradientPhase = gradientPhase)
+                    HomeScreen()
                 } else {
+                    val gradientPhase = rememberGradientPhase()
                     OnboardingScreen(
                         gradientPhase = gradientPhase,
                         onFinished = {
