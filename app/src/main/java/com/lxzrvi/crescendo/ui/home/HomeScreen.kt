@@ -257,6 +257,7 @@ fun HomeScreen(modifier: Modifier = Modifier) {
             onSearchDone = { keyboard?.hide() },
             imeVisible = imeVisible,
             pageBackdrop = pageBackdrop,
+            pageInput = pageInput,
             liveBlur = appearance.liveBlur,
         )
     }

@@ -4,6 +4,8 @@ import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.tween
+import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.interaction.collectIsPressedAsState
@@ -55,6 +57,7 @@ import androidx.compose.ui.unit.LayoutDirection
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.styropyr0.prismal.PrismalBackdrop
+import com.styropyr0.prismal.PrismalGlass
 import com.styropyr0.prismal.depth.PrismalDepthShadow
 import com.styropyr0.prismal.drawPlainPrismalGlass
 import com.styropyr0.prismal.drawPrismalGlass
@@ -62,6 +65,11 @@ import com.styropyr0.prismal.effects.applyPrismalGlassEffects
 import com.styropyr0.prismal.shapes.PrismalCapsule
 import com.styropyr0.prismal.sources.rememberPrismalCanvasSource
 import com.styropyr0.prismal.specular.PrismalSpecular
+import dev.chrisbanes.haze.HazeInput
+import dev.chrisbanes.haze.HazePerformanceMode
+import dev.chrisbanes.haze.blur.HazeBlurStyle
+import dev.chrisbanes.haze.blur.HazeColorEffect
+import dev.chrisbanes.haze.blur.hazeBlur
 import kotlin.math.PI
 import kotlin.math.sin
 import kotlin.math.sqrt
@@ -80,6 +88,7 @@ internal fun FloatingNavigation(
     onSearchDone: () -> Unit,
     imeVisible: Boolean,
     pageBackdrop: PrismalBackdrop,
+    pageInput: HazeInput.Sources,
     liveBlur: Boolean,
 ) {
     val colors = MaterialTheme.colorScheme
@@ -103,6 +112,18 @@ internal fun FloatingNavigation(
     val solidDraw: DrawScope.() -> Unit = remember(solidColor) { { drawRect(solidColor) } }
     val solidBackdrop = rememberPrismalCanvasSource(solidDraw)
     val backdrop = if (liveBlur) pageBackdrop else solidBackdrop
+    val legacySearchStyle = remember {
+        HazeBlurStyle {
+            // Prismal's Android 11-and-earlier tier samples glass but cannot blur it.
+            // Haze uses its slower asynchronous RenderScript path on those devices.
+            blurEnabled(true)
+            blurRadius(10.dp)
+            backgroundColor(Color.Transparent)
+            noiseFactor(0f)
+            colorEffects(emptyList())
+            fallbackColorEffect(HazeColorEffect.tint(Color.Transparent))
+        }
+    }
 
     val morph by animateFloatAsState(
         targetValue = if (searching) 1f else 0f,
@@ -199,6 +220,19 @@ internal fun FloatingNavigation(
         // Only a focused Search field follows its IME; the return circle stays at
         // the bottom, as in Crescendo's original Search transition.
         val searchImeModifier = if (searching && searchFocused) Modifier.imePadding() else Modifier
+        val searchSurface = if (liveBlur && !PrismalGlass.supportsBackdropBlur) {
+            Modifier
+                .clip(PrismalCapsule())
+                .hazeBlur(input = pageInput, style = legacySearchStyle, performanceMode = HazePerformanceMode.Performance)
+                .background(if (isLightTheme) Color(0xFFFAFAFA).copy(alpha = 0.4f) else Color(0xFF121212).copy(alpha = 0.4f))
+                .border(
+                    0.5.dp,
+                    (if (isLightTheme) Color.Black else Color.White).copy(alpha = 0.16f * (1f - connection * 0.75f)),
+                    PrismalCapsule(),
+                )
+        } else {
+            Modifier.prismalNavigationSurface(backdrop, density, isLightTheme, connection).clip(PrismalCapsule())
+        }
         Box(
             modifier = Modifier
                 .align(Alignment.BottomEnd)
@@ -207,8 +241,7 @@ internal fun FloatingNavigation(
                 .padding(end = edge, bottom = 14.dp)
                 .width(searchWidth)
                 .height(barHeight)
-                .prismalNavigationSurface(backdrop, density, isLightTheme, connection)
-                .clip(PrismalCapsule()),
+                .then(searchSurface),
             contentAlignment = Alignment.Center,
         ) {
             val searchIconAlpha = (1f - morph * 1.4f).coerceIn(0f, 1f)
