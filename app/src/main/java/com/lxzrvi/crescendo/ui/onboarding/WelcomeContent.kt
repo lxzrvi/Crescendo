@@ -75,6 +75,7 @@ internal fun WelcomeContent(
     gradientPosition: () -> Float,
     gradientSize: IntSize,
     gradientTransform: () -> GradientLayerTransform,
+    markVisible: Boolean = true,
     onMarkPositioned: (Offset) -> Unit = {},
 ) {
     val context = LocalContext.current
@@ -145,7 +146,8 @@ internal fun WelcomeContent(
                                         coordinates.size.height / 2f,
                                     )
                                 )
-                            },
+                            }
+                            .graphicsLayer { alpha = if (markVisible) 1f else 0f },
                         tint = colors.onBackground,
                     )
                 }
@@ -235,7 +237,7 @@ internal fun WelcomeContent(
                     modifier = Modifier.alignByBaseline(),
                 )
                 ContrastFooterText(
-                    text = "lxzrvi \u2218 2026",
+                    text = "lxzrvi \u00B7 2026",
                     fontSize = 12.sp,
                     gradientPhase = gradientPhase,
                     gradientPosition = gradientPosition,
@@ -249,9 +251,9 @@ internal fun WelcomeContent(
 }
 
 /**
- * Uses the moving backdrop's own colors to choose black or white ink along each footer label.
- * SrcIn is available on all supported Android versions; no API-29-only difference blend is used.
- * The animation values are read during drawing rather than recomposing the whole welcome screen.
+ * Dark-mode footer ink stays white. In light mode, sample the moving backdrop to keep the
+ * ink legible as it changes. SrcIn works across all supported Android versions, and animation
+ * values are read during drawing rather than recomposing the whole welcome screen.
  */
 @Composable
 private fun ContrastFooterText(
@@ -265,6 +267,16 @@ private fun ContrastFooterText(
     fontFamily: FontFamily? = null,
 ) {
     val background = MaterialTheme.colorScheme.background
+    if (background.luminance() < 0.5f) {
+        Text(
+            text = text,
+            fontFamily = fontFamily,
+            fontSize = fontSize,
+            color = Color.White,
+            modifier = modifier,
+        )
+        return
+    }
     var origin by remember { mutableStateOf<Offset?>(null) }
     Text(
         text = text,

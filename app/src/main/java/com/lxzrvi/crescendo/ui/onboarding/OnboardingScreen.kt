@@ -60,7 +60,6 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.graphicsLayer
-import androidx.compose.ui.graphics.lerp
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
@@ -76,7 +75,10 @@ import androidx.core.content.ContextCompat
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.LocalLifecycleOwner
+import com.lxzrvi.crescendo.ui.components.BellIcon
 import com.lxzrvi.crescendo.ui.components.CrescendoLoader
+import com.lxzrvi.crescendo.ui.components.CrescendoMark
+import com.lxzrvi.crescendo.ui.components.MusicNoteIcon
 import com.lxzrvi.crescendo.ui.theme.BorelFamily
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.delay
@@ -106,6 +108,7 @@ fun OnboardingScreen(gradientPhase: State<Float>, onFinished: () -> Unit) {
     var notificationsRequested by rememberSaveable { mutableStateOf(false) }
     var rootSize by remember { mutableStateOf(IntSize.Zero) }
     var markCenter by remember { mutableStateOf<Offset?>(null) }
+    var departureMarkCenter by remember { mutableStateOf<Offset?>(null) }
 
     fun refreshPermissions() {
         status = readPermissionStatus(context)
@@ -256,61 +259,52 @@ fun OnboardingScreen(gradientPhase: State<Float>, onFinished: () -> Unit) {
         )
     }
 
-    val focusGlow = remember { Animatable(0f) }
-    val exit = remember { Animatable(0f) }
-    val loaderIn = remember { Animatable(0f) }
+    // One progress value keeps the downward gradient and the moving mark in sync.
+    val departure = remember { Animatable(0f) }
+    val loaderReveal = remember { Animatable(0f) }
     val loaderPulse = remember { Animatable(1f) }
     val loaderDepart = remember { Animatable(0f) }
     val homeGlow = remember { Animatable(0f) }
     var revealingHomeGlow by remember { mutableStateOf(false) }
+    var showLoader by remember { mutableStateOf(false) }
 
     fun glowTransform(): GradientLayerTransform {
-        val w = rootSize.width.toFloat()
         val h = rootSize.height.toFloat()
-        if (revealingHomeGlow) {
-            return GradientLayerTransform(
+        return if (revealingHomeGlow) {
+            GradientLayerTransform(
                 y = (homeGlow.value - 1f) * h,
                 alpha = (homeGlow.value * 2f).coerceIn(0f, 1f),
             )
+        } else {
+            // The welcome gradient simply slides down, without shifting toward the mark.
+            GradientLayerTransform(y = departure.value * h)
         }
-        val source = Offset(w * 0.5f, h * (0.22f + 0.68f * bgPosition.value))
-        val mark = markCenter ?: Offset(w * 0.8f, h * 0.16f)
-        // The glow heads toward the mark as the mark travels to the loader's center.
-        val target = Offset(
-            mark.x + (w * 0.5f - mark.x) * loaderIn.value,
-            mark.y + (h * 0.5f - mark.y) * loaderIn.value,
-        )
-        return GradientLayerTransform(
-            x = (target.x - source.x) * focusGlow.value,
-            y = (target.y - source.y) * focusGlow.value + exit.value * h * 1.8f,
-            alpha = (1f - exit.value).coerceIn(0f, 1f),
-        )
     }
 
     LaunchedEffect(finishing) {
         if (!finishing) {
             // Also reset if access is revoked while the finishing animation is running.
-            focusGlow.snapTo(0f)
-            exit.snapTo(0f)
-            loaderIn.snapTo(0f)
+            departure.snapTo(0f)
+            loaderReveal.snapTo(0f)
             loaderPulse.snapTo(1f)
             loaderDepart.snapTo(0f)
             homeGlow.snapTo(0f)
             revealingHomeGlow = false
+            showLoader = false
         } else {
-            coroutineScope {
-                launch { loaderIn.animateTo(1f, tween(800, easing = FastOutSlowInEasing)) }
-                focusGlow.animateTo(1f, tween(500, easing = FastOutSlowInEasing))
-                exit.animateTo(1f, tween(900, easing = FastOutSlowInEasing))
-            }
-            delay(1000) // A brief moment to see the comet loader.
+            // Freeze a still-settling welcome glow so only its downward slide drives it.
+            bgPosition.stop()
+            departure.animateTo(1f, tween(850, easing = FastOutSlowInEasing))
+            showLoader = true
+            loaderReveal.animateTo(1f, tween(260, easing = FastOutSlowInEasing))
+            delay(1200) // A brief moment to see the comet loader.
             if (!hasMusicAccess(context)) {
                 refreshPermissions()
                 finishing = false
                 return@LaunchedEffect
             }
 
-            // The old glow is invisible; reset its shape before bringing it in from above.
+            // Reset the invisible glow, then bring it back from above for Home.
             bgPosition.snapTo(0f)
             revealingHomeGlow = true
             coroutineScope {
@@ -366,13 +360,17 @@ fun OnboardingScreen(gradientPhase: State<Float>, onFinished: () -> Unit) {
                     WelcomeContent(
                         onGetStarted = {
                             refreshPermissions()
-                            if (status.musicGranted && pageIndex >= pageCount) finishing = true
+                            if (status.musicGranted && pageIndex >= pageCount) {
+                                departureMarkCenter = markCenter
+                                finishing = true
+                            }
                         },
                         onMarkPositioned = { markCenter = it },
                         gradientPhase = gradientPhase,
                         gradientPosition = { bgPosition.value },
                         gradientSize = rootSize,
                         gradientTransform = { glowTransform() },
+                        markVisible = !finishing,
                     )
                 } else {
                     PermissionStage(
@@ -388,29 +386,43 @@ fun OnboardingScreen(gradientPhase: State<Float>, onFinished: () -> Unit) {
         }
 
         if (finishing) {
-            val c = markCenter
+            // Capture the start once so scrolling or layout updates cannot make the mark jump.
+            val c = departureMarkCenter
             val start = if (c != null && rootSize != IntSize.Zero)
                 Offset(c.x - rootSize.width / 2f, c.y - rootSize.height / 2f)
             else Offset.Zero
             val liftPx = with(LocalDensity.current) { 20.dp.toPx() }
 
             Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                CrescendoLoader(
+                CrescendoMark(
                     modifier = Modifier
                         .size(LOADER_SIZE_DP.dp)
                         .graphicsLayer {
-                            val t = loaderIn.value
-                            val depart = loaderDepart.value
+                            val t = departure.value
                             translationX = start.x * (1f - t)
-                            translationY = start.y * (1f - t) - liftPx * depart
-                            val entryScale = MARK_START_SCALE + (1f - MARK_START_SCALE) * t
-                            val settleScale = loaderPulse.value * (1f - 0.16f * depart)
-                            scaleX = entryScale * settleScale
-                            scaleY = entryScale * settleScale
-                            alpha = (t * 5f).coerceIn(0f, 1f) * (1f - depart)
+                            translationY = start.y * (1f - t)
+                            val size = MARK_START_SCALE + (1f - MARK_START_SCALE) * t
+                            scaleX = size
+                            scaleY = size
+                            alpha = 1f - loaderReveal.value
                         },
-                    color = lerp(colors.onBackground, colors.primary, loaderIn.value),
+                    tint = colors.onBackground,
                 )
+                if (showLoader) {
+                    CrescendoLoader(
+                        modifier = Modifier
+                            .size(LOADER_SIZE_DP.dp)
+                            .graphicsLayer {
+                                val depart = loaderDepart.value
+                                translationY = -liftPx * depart
+                                val size = loaderPulse.value * (1f - 0.16f * depart)
+                                scaleX = size
+                                scaleY = size
+                                alpha = loaderReveal.value * (1f - depart)
+                            },
+                        color = colors.primary,
+                    )
+                }
             }
         }
     }
@@ -542,7 +554,6 @@ private fun PermissionContent(
 ) {
     val colors = MaterialTheme.colorScheme
     val music = page.kind == PermissionKind.MUSIC
-    val granted = if (music) status.musicGranted else status.notificationsGranted
     Column(
         modifier = Modifier
             .fillMaxSize()
@@ -557,15 +568,11 @@ private fun PermissionContent(
                 .verticalScroll(rememberScrollState()),
         ) {
             Row(verticalAlignment = Alignment.CenterVertically) {
-                PermissionStatusIcon(
-                    kind = if (music) PermissionIconKind.MUSIC else PermissionIconKind.NOTIFICATIONS,
-                    granted = granted,
-                    tint = colors.primary,
-                    badgeColor = colors.onBackground,
-                    checkColor = colors.background,
-                    badgeSize = 12.dp,
-                    modifier = Modifier.size(26.dp),
-                )
+                if (music) {
+                    MusicNoteIcon(modifier = Modifier.size(26.dp), tint = colors.primary)
+                } else {
+                    BellIcon(modifier = Modifier.size(26.dp), tint = colors.primary)
+                }
                 Spacer(modifier = Modifier.width(10.dp))
                 Text(
                     text = page.title,

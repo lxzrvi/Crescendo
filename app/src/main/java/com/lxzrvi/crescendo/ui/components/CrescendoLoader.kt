@@ -65,7 +65,8 @@ fun CrescendoLoader(
             val len = measure.length
             val seg = Path()
 
-            val slices = 26
+            // A few overlapping slices keep the comet smooth with less per-frame work.
+            val slices = 20
             val tailLen = len * 0.30f
             val sliceLen = tailLen / slices
 

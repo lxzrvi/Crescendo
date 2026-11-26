@@ -12,12 +12,13 @@ val Blush = Color(0xFFFDA4AF)
 val TextPrimary = Color(0xFFF5F3FF)
 val TextSecondary = Color(0xFFBDBDC3)
 val DarkSecondarySurface = Color(0xFF25191C)
-val Accent = NeonRed
+// Vivid crimson, balanced for the dark background and black button text.
+val Accent = Color(0xFFF2293A)
 
 // Light mode retains the red identity with readable dark text and soft surfaces.
 val LightBackground = Color(0xFFFFFBFA)
 val LightSurface = Color(0xFFFFF5F3)
 val LightPrimaryText = Color(0xFF211B1B)
 val LightSecondaryText = Color(0xFF625F62)
-val LightAccent = Color(0xFFB72B23)
+val LightAccent = Color(0xFFE11D2E)
 val LightSecondarySurface = Color(0xFFFCE4E1)
