@@ -124,8 +124,9 @@ internal fun FloatingNavigation(
                 ),
             contentAlignment = Alignment.Center,
         ) {
-            val tabsAlpha = (1f - progress * 3.4f).coerceIn(0f, 1f)
-            if (progress < 0.30f) {
+            // Crossfade the four tabs and the remembered tab without a blank frame mid-morph.
+            val tabsAlpha = (1f - progress / 0.42f).coerceIn(0f, 1f)
+            if (progress < 0.42f) {
                 Row(
                     modifier = Modifier
                         .fillMaxSize()
@@ -145,8 +146,8 @@ internal fun FloatingNavigation(
                         }
                 }
             }
-            val collapsedAlpha = ((progress - 0.38f) / 0.45f).coerceIn(0f, 1f)
-            if (progress > 0.38f) {
+            val collapsedAlpha = ((progress - 0.18f) / 0.26f).coerceIn(0f, 1f)
+            if (progress > 0.18f) {
                 Box(
                     modifier = Modifier
                         .fillMaxSize()
