@@ -39,6 +39,9 @@ internal class ForegroundPlayback(
         private set
     var errorMessage by mutableStateOf<String?>(null)
         private set
+    var shuffleEnabled by mutableStateOf(false)
+        private set
+    private var shuffledIds: List<String> = emptyList()
     private var pendingCountId: String? = null
 
     private val listener = object : Player.Listener {
@@ -112,18 +115,63 @@ internal class ForegroundPlayback(
         }
     }
 
-    /** Next follows the actual alphabetically sorted device library, wrapping at the end. */
+    /** Enabling shuffle starts a real randomly selected track and changes the Next order. */
+    fun toggleShuffle(songs: List<Song>) {
+        if (songs.isEmpty()) return
+        shuffleEnabled = !shuffleEnabled
+        if (shuffleEnabled) {
+            reshuffle(songs)
+            val first = songs.firstOrNull { it.id == shuffledIds.firstOrNull() } ?: return
+            startOrRestart(first)
+        } else {
+            shuffledIds = emptyList()
+        }
+    }
+
+    /** Next follows the library order, or the real shuffled order, wrapping at the end. */
     fun next(songs: List<Song>) {
         if (songs.isEmpty()) return
-        val index = songs.indexOfFirst { it.id == currentSong?.id }
-        val next = songs[(index + 1).coerceAtLeast(0) % songs.size]
-        if (currentSong?.id != next.id) {
-            select(next)
+        val next = if (shuffleEnabled) {
+            val ids = songs.map { it.id }.toSet()
+            if (shuffledIds.size != ids.size || shuffledIds.toSet() != ids) reshuffle(songs)
+            val index = shuffledIds.indexOf(currentSong?.id)
+            if (index < 0 || index == shuffledIds.lastIndex) {
+                reshuffle(songs)
+                songs.firstOrNull { it.id == shuffledIds.firstOrNull() } ?: songs.first()
+            } else {
+                songs.firstOrNull { it.id == shuffledIds[index + 1] } ?: songs.first()
+            }
         } else {
-            // With a one-song library, Next restarts rather than merely toggling pause.
+            val index = songs.indexOfFirst { it.id == currentSong?.id }
+            songs[(index + 1).coerceAtLeast(0) % songs.size]
+        }
+        startOrRestart(next)
+    }
+
+    /** Position is read on the player thread and drives the mini-player's progress line. */
+    fun progressFraction(): Float {
+        val duration = player.duration.takeIf { it > 0 && it != C.TIME_UNSET }
+            ?: currentSong?.durationMs?.takeIf { it > 0 } ?: return 0f
+        return (player.currentPosition.toFloat() / duration.toFloat()).coerceIn(0f, 1f)
+    }
+
+    private fun reshuffle(songs: List<Song>) {
+        val ids = songs.shuffled().map { it.id }.toMutableList()
+        if (ids.size > 1 && ids.first() == currentSong?.id) {
+            val first = ids.removeAt(0)
+            ids.add(first)
+        }
+        shuffledIds = ids
+    }
+
+    private fun startOrRestart(song: Song) {
+        if (currentSong?.id != song.id) {
+            select(song)
+        } else {
+            // With one song, Next/Shuffle restarts rather than toggling pause.
             errorMessage = null
             player.pause()
-            pendingCountId = next.id
+            pendingCountId = song.id
             player.seekTo(0)
             if (player.playbackState == Player.STATE_IDLE) player.prepare()
             player.play()

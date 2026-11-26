@@ -21,18 +21,18 @@ import dev.chrisbanes.haze.blur.HazeBlurStyle
 import dev.chrisbanes.haze.blur.HazeColorEffect
 import dev.chrisbanes.haze.blur.hazeBlur
 
-/** A live status-area blur, held at full strength over the icons and faded out below them. */
+/** Live status-area blur with a soft, continuous fade into the page. */
 @Composable
 internal fun StatusBarBackdrop(input: HazeInput.Sources, liveBlur: Boolean) {
     val background = MaterialTheme.colorScheme.background
     val statusHeight = WindowInsets.statusBars.asPaddingValues().calculateTopPadding()
-    // Continue beneath the icons and gently fade into the real content.
-    val totalHeight = statusHeight + 32.dp
-    val fadeStart = (statusHeight / totalHeight).coerceIn(0.20f, 0.80f)
-    val fadeMask = remember(fadeStart) {
+    // No solid horizontal cutoff: the blur begins softly and fades well below the icons.
+    val totalHeight = statusHeight + 60.dp
+    val fadeMask = remember {
         Brush.verticalGradient(
-            0f to Color.Black,
-            fadeStart to Color.Black,
+            0f to Color.Black.copy(alpha = 0.88f),
+            0.28f to Color.Black.copy(alpha = 0.72f),
+            0.58f to Color.Black.copy(alpha = 0.32f),
             1f to Color.Transparent,
         )
     }
@@ -49,10 +49,11 @@ internal fun StatusBarBackdrop(input: HazeInput.Sources, liveBlur: Boolean) {
             mask(fadeMask)
         }
     }
-    val solidFade = remember(background, fadeStart) {
+    val solidFade = remember(background) {
         Brush.verticalGradient(
-            0f to background.copy(alpha = 0.92f),
-            fadeStart to background.copy(alpha = 0.72f),
+            0f to background.copy(alpha = 0.58f),
+            0.32f to background.copy(alpha = 0.40f),
+            0.65f to background.copy(alpha = 0.16f),
             1f to Color.Transparent,
         )
     }

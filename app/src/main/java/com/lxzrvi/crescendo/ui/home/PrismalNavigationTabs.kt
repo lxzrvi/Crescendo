@@ -94,7 +94,6 @@ import com.styropyr0.prismal.depth.PrismalDepthInset
 import com.styropyr0.prismal.depth.PrismalDepthShadow
 import com.styropyr0.prismal.drawPrismalGlass
 import com.styropyr0.prismal.effects.applyPrismalGlassEffects
-import com.styropyr0.prismal.effects.prismalLens
 import com.styropyr0.prismal.interactive.PrismalPressRipple
 import com.styropyr0.prismal.interactive.PrismalSpringMotion
 import com.styropyr0.prismal.shapes.PrismalCapsule
@@ -140,11 +139,12 @@ internal fun PrismalNavigationTabs(
     else Color(0xFF121212).copy(alpha = 0.4f)
     val dropletTint = MaterialTheme.colorScheme.primary
     // The Prismal catalog uses a lower press glow in dark mode.
-    val pressGlow = if (isLightTheme) 0.7f else 0.25f
+    val pressGlow = if (isLightTheme) 0.35f else 0.16f
 
     BoxWithConstraints(modifier, contentAlignment = Alignment.CenterStart) {
         val tabWidth = ((constraints.maxWidth.toFloat() - with(density) { 8.dp.toPx() }) / tabsCount)
             .coerceAtLeast(1f)
+        val showLabels = tabWidth >= with(density) { 42.dp.toPx() }
         val offsetAnimation = remember { Animatable(0f) }
         val panelOffset by remember(density, constraints.maxWidth) {
             derivedStateOf {
@@ -153,7 +153,7 @@ internal fun PrismalNavigationTabs(
             }
         }
         // The upstream spring is retained; gesture events below drive it after a long press.
-        val motion = remember(scope, tabsCount, tabWidth, isLtr) {
+        val motion = remember(scope, tabsCount, isLtr) {
             PrismalSpringMotion(
                 animationScope = scope,
                 initialValue = selectedIndex.toFloat(),
@@ -328,6 +328,7 @@ internal fun PrismalNavigationTabs(
                         selected = selectedIndex == index,
                         enabled = controlsEnabled,
                         captureOnly = false,
+                        showLabel = showLabels,
                         alpha = tabsAlpha,
                         scale = { lerp(1f, 1.05f, motion.pressProgress) },
                         isLightTheme = isLightTheme,
@@ -378,6 +379,7 @@ internal fun PrismalNavigationTabs(
                         selected = selectedIndex == index,
                         enabled = false,
                         captureOnly = true,
+                        showLabel = showLabels,
                         alpha = tabsAlpha,
                         scale = { lerp(1f, 1.05f / contentShrink, motion.pressProgress) },
                         isLightTheme = isLightTheme,
@@ -403,11 +405,18 @@ internal fun PrismalNavigationTabs(
                         shape = { PrismalCapsule() },
                         effects = {
                             val progress = motion.pressProgress
-                            prismalLens(
-                                refractionHeight = with(density) { 14.dp.toPx() } * progress,
-                                refractionAmount = with(density) { 14.dp.toPx() } * progress,
+                            // The selector also samples and softly blurs the live backdrop.
+                            applyPrismalGlassEffects(
+                                density = density,
+                                adaptiveLuminance = false,
+                                luminance = 0.5f,
+                                blurRadiusPx = with(density) { 2.dp.toPx() },
+                                refractionHeightPx = with(density) { 14.dp.toPx() } * progress,
+                                refractionAmountPx = with(density) { 14.dp.toPx() } * progress,
                                 depthEffect = true,
-                                chromaticAberration = 0.45f,
+                                chromaticAberration = 0.35f,
+                                useVibrancy = false,
+                                saturation = 1f,
                             )
                         },
                         specular = { PrismalSpecular.Default.copy(alpha = motion.pressProgress) },
@@ -457,6 +466,7 @@ private fun RowScope.PrismalNavigationItem(
     selected: Boolean,
     enabled: Boolean,
     captureOnly: Boolean,
+    showLabel: Boolean,
     alpha: Float,
     scale: () -> Float,
     isLightTheme: Boolean,
@@ -478,8 +488,9 @@ private fun RowScope.PrismalNavigationItem(
             contentDescription = destination.label
             if (enabled) onClick { onSelect(); true } else disabled()
         }
-    val foreground = if (selected && !captureOnly) MaterialTheme.colorScheme.primary
-    else if (isLightTheme) Color.Black else Color.White
+    // The tinted live source inside the moving droplet colors only the icon it covers.
+    // Do not keep the last selected base icon red while the pill is travelling away.
+    val foreground = if (isLightTheme) Color.Black else Color.White
     Column(
         Modifier
             .clip(PrismalCapsule())
@@ -501,18 +512,20 @@ private fun RowScope.PrismalNavigationItem(
             modifier = Modifier.size(27.dp),
             tint = foreground,
         )
-        Text(
-            text = destination.label,
-            style = MaterialTheme.typography.labelMedium.copy(
-                fontSize = 10.sp,
-                lineHeight = 12.sp,
-                fontWeight = FontWeight.Medium,
-            ),
-            color = foreground,
-            textAlign = TextAlign.Center,
-            maxLines = 1,
-            softWrap = false,
-            overflow = TextOverflow.Clip,
-        )
+        if (showLabel) {
+            Text(
+                text = destination.label,
+                style = MaterialTheme.typography.labelMedium.copy(
+                    fontSize = 10.sp,
+                    lineHeight = 12.sp,
+                    fontWeight = FontWeight.Medium,
+                ),
+                color = foreground,
+                textAlign = TextAlign.Center,
+                maxLines = 1,
+                softWrap = false,
+                overflow = TextOverflow.Clip,
+            )
+        }
     }
 }

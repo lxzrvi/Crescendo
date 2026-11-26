@@ -166,10 +166,28 @@ internal class ListeningHistory(context: Context) {
         key.removePrefix("play_") to count
     }.toMap()
 
+    fun recentTimes(): Map<String, Long> = preferences.all.mapNotNull { (key, value) ->
+        if (!key.startsWith("recent_")) return@mapNotNull null
+        val playedAt = (value as? Long) ?: return@mapNotNull null
+        key.removePrefix("recent_") to playedAt
+    }.toMap()
+
+    fun liked(): Set<String> = preferences.getStringSet("liked_songs", emptySet())?.toSet().orEmpty()
+
+    fun toggleLiked(song: Song): Set<String> {
+        val updated = liked().toMutableSet()
+        if (!updated.add(song.historyKey)) updated.remove(song.historyKey)
+        preferences.edit().putStringSet("liked_songs", updated.toSet()).apply()
+        return updated
+    }
+
     fun record(song: Song): Map<String, Int> {
         val key = "play_${song.historyKey}"
         val current = preferences.getInt(key, 0)
-        preferences.edit().putInt(key, if (current == Int.MAX_VALUE) current else current + 1).apply()
+        preferences.edit()
+            .putInt(key, if (current == Int.MAX_VALUE) current else current + 1)
+            .putLong("recent_${song.historyKey}", System.currentTimeMillis())
+            .apply()
         return counts()
     }
 }

@@ -16,6 +16,11 @@ import kotlinx.coroutines.sync.Semaphore
 import kotlinx.coroutines.sync.withPermit
 import kotlinx.coroutines.withContext
 
+/** The most populous real swatches, in descending order of cover-pixel population. */
+internal data class ArtworkPalette(val swatches: List<Int>) {
+    val dominant: Int? get() = swatches.firstOrNull()
+}
+
 /** Size-limited, off-main-thread local artwork loading with an embedded-art fallback. */
 internal class AlbumArtworkLoader(context: Context) {
     private val appContext = context.applicationContext
@@ -23,7 +28,7 @@ internal class AlbumArtworkLoader(context: Context) {
     private val pendingLimit = Semaphore(4)
     private val paletteLimit = Semaphore(2)
     private val missing = ConcurrentHashMap.newKeySet<String>()
-    private val colors = LruCache<String, Int>(512)
+    private val colors = LruCache<String, ArtworkPalette>(512)
     private val cache = object : LruCache<String, Bitmap>(24 * 1024) {
         override fun sizeOf(key: String, value: Bitmap): Int = (value.byteCount / 1024).coerceAtLeast(1)
     }
@@ -47,29 +52,33 @@ internal class AlbumArtworkLoader(context: Context) {
         }
     }
 
-    /** Extract a real dominant swatch asynchronously; cache it across the Home sections. */
-    suspend fun dominantColor(song: Song, bitmap: Bitmap): Int? = withContext(Dispatchers.Default) {
+    /** Extract actual populous cover colors off the UI thread and reuse them across sections. */
+    suspend fun palette(song: Song, bitmap: Bitmap): ArtworkPalette? = withContext(Dispatchers.Default) {
         val key = "${song.id}:${song.dateModified}"
         colors.get(key)?.let { return@withContext it }
         paletteLimit.withPermit {
             colors.get(key)?.let { return@withPermit it }
             var software: Bitmap? = null
-            val color = try {
+            val result = try {
                 // Palette reads pixels and cannot directly inspect a hardware bitmap.
                 software = if (bitmap.config == Bitmap.Config.HARDWARE) bitmap.copy(Bitmap.Config.ARGB_8888, false)
                 else bitmap
-                software?.let {
-                    Palette.from(it).clearFilters().maximumColorCount(16).generate().dominantSwatch?.rgb
+                software?.let { source ->
+                    val swatches = Palette.from(source).clearFilters().maximumColorCount(16).generate()
+                        .swatches.sortedByDescending { it.population }.map { it.rgb }.distinct().take(4)
+                    if (swatches.isEmpty()) null else ArtworkPalette(swatches)
                 }
             } catch (_: Exception) {
                 null
             } finally {
                 if (software != null && software !== bitmap) software?.recycle()
             }
-            if (color != null) colors.put(key, color)
-            color
+            if (result != null) colors.put(key, result)
+            result
         }
     }
+
+    suspend fun dominantColor(song: Song, bitmap: Bitmap): Int? = palette(song, bitmap)?.dominant
 
     private fun thumbnail(song: Song, size: Int): Bitmap? {
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.Q) return null

@@ -3,6 +3,10 @@ plugins {
     id("org.jetbrains.kotlin.plugin.compose")
 }
 
+val releaseStorePath = System.getenv("CRESCENDO_RELEASE_STORE_FILE")
+val releaseStorePassword = System.getenv("CRESCENDO_RELEASE_PASSWORD")
+val releaseRunNumber = System.getenv("GITHUB_RUN_NUMBER")?.toIntOrNull()
+
 android {
     namespace = "com.lxzrvi.crescendo"
     // Haze 2.1 and the Compose UI it uses require API 37.0 at compile time.
@@ -17,12 +21,26 @@ android {
         minSdk = 26
         // Keep runtime behavior unchanged while updating the compile toolchain.
         targetSdk = 35
-        versionCode = 1
-        versionName = "0.1.0"
+        // Actions run numbers increase monotonically, allowing future signed updates.
+        versionCode = (releaseRunNumber ?: 2).coerceAtLeast(2)
+        versionName = "0.2.0"
+    }
+
+    signingConfigs {
+        create("release") {
+            if (!releaseStorePath.isNullOrBlank() && !releaseStorePassword.isNullOrBlank()) {
+                storeFile = file(releaseStorePath)
+                storePassword = releaseStorePassword
+                keyAlias = "crescendo"
+                keyPassword = releaseStorePassword
+            }
+        }
     }
 
     buildTypes {
         release {
+            signingConfig = signingConfigs.getByName("release")
+            isDebuggable = false
             isMinifyEnabled = false
             proguardFiles(
                 getDefaultProguardFile("proguard-android-optimize.txt"),
@@ -64,6 +82,7 @@ dependencies {
     implementation("androidx.media3:media3-exoplayer:1.11.1")
     // Extract actual album-cover colors for the Home cards, off the main thread.
     implementation("androidx.palette:palette:1.0.0")
+    implementation("androidx.exifinterface:exifinterface:1.4.2")
 
     // Haze still supplies the progressive blur behind the status bar.
     implementation("dev.chrisbanes.haze:haze:2.1.0")

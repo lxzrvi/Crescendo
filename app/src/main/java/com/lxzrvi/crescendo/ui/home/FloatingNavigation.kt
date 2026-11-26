@@ -56,6 +56,8 @@ import androidx.compose.ui.unit.Density
 import androidx.compose.ui.unit.LayoutDirection
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.lxzrvi.crescendo.data.AlbumArtworkLoader
+import com.lxzrvi.crescendo.data.Song
 import com.styropyr0.prismal.PrismalBackdrop
 import com.styropyr0.prismal.PrismalGlass
 import com.styropyr0.prismal.depth.PrismalDepthShadow
@@ -90,6 +92,15 @@ internal fun FloatingNavigation(
     pageBackdrop: PrismalBackdrop,
     pageInput: HazeInput.Sources,
     liveBlur: Boolean,
+    miniSong: Song?,
+    artwork: AlbumArtworkLoader,
+    miniPlaying: Boolean,
+    miniLoading: Boolean,
+    miniError: String?,
+    miniProgress: Float,
+    miniCollapsed: Boolean,
+    onMiniToggle: () -> Unit,
+    onMiniNext: () -> Unit,
 ) {
     val colors = MaterialTheme.colorScheme
     val isLightTheme = colors.background.luminance() >= 0.5f
@@ -130,10 +141,10 @@ internal fun FloatingNavigation(
         animationSpec = tween(420, easing = FastOutSlowInEasing),
         label = "navigationSearchMorph",
     )
-    val keyboardGrowth by animateFloatAsState(
-        targetValue = if (searching && searchFocused && imeVisible) 1f else 0f,
-        animationSpec = tween(220, easing = FastOutSlowInEasing),
-        label = "searchKeyboardWidth",
+    val compact by animateFloatAsState(
+        targetValue = if (miniSong != null && (miniCollapsed || searching)) 1f else 0f,
+        animationSpec = tween(440, easing = FastOutSlowInEasing),
+        label = "miniPlayerDock",
     )
     val touchConnection by animateFloatAsState(
         targetValue = maxOf(navPressProgress, if (searchPressed) 1f else 0f),
@@ -142,18 +153,18 @@ internal fun FloatingNavigation(
     )
     // Joining, stretching and splitting is synchronized to the capsule morph.
     val transitionConnection = sin((morph.coerceIn(0f, 1f) * PI).toFloat()).coerceIn(0f, 1f)
-    val connection = (maxOf(touchConnection, transitionConnection) * (1f - keyboardGrowth))
-        .coerceIn(0f, 1f)
+    val connection = maxOf(touchConnection, transitionConnection).coerceIn(0f, 1f)
 
     BoxWithConstraints(modifier = Modifier.fillMaxSize()) {
         val edge = ContentSidePadding
         val gap = 10.dp
         val barHeight = 64.dp // Prismal's actual bottom-tabs capsule height.
         val availableWidth = (maxWidth - edge * 2).coerceAtLeast(barHeight * 2 + gap)
-        val wideWidth = (availableWidth - barHeight - gap).coerceAtLeast(barHeight)
+        val miniSpace = if (miniSong != null) (barHeight + gap) * compact else 0.dp
+        val wideWidth = (availableWidth - barHeight - gap - miniSpace).coerceAtLeast(barHeight)
         val navWidth = wideWidth * (1f - morph) + barHeight * morph
-        val searchAtRest = barHeight * (1f - morph) + wideWidth * morph
-        val searchWidth = searchAtRest * (1f - keyboardGrowth) + availableWidth * keyboardGrowth
+        val searchWidth = (availableWidth - navWidth - gap - miniSpace).coerceAtLeast(barHeight)
+        val chromeImeModifier = if (searching && searchFocused && imeVisible) Modifier.imePadding() else Modifier
         val indicatorAlpha = (1f - morph * 1.55f).coerceIn(0f, 1f)
         val tabsAlpha = (1f - morph * 1.35f).coerceIn(0f, 1f)
         val returnAlpha = (morph * 1.35f - 0.25f).coerceIn(0f, 1f)
@@ -161,14 +172,16 @@ internal fun FloatingNavigation(
 
         // A real sampled-glass bridge sits beneath the two capsules. Its concave
         // neck grows and shrinks like liquid; it has no touch target of its own.
-        if (connection > 0.005f && !(searching && searchFocused && imeVisible)) {
+        if (connection > 0.005f) {
             val overlap = 16.dp
             Box(
                 modifier = Modifier
                     .align(Alignment.BottomStart)
+                    .then(chromeImeModifier)
                     .navigationBarsPadding()
                     .padding(start = edge + navWidth - overlap, bottom = 14.dp)
-                    .width(gap + overlap * 2)
+                    // Span both gaps when the circular player is docked between the pills.
+                    .width(gap + miniSpace + overlap * 2)
                     .height(barHeight)
                     .graphicsLayer { alpha = connection }
                     .liquidBridge(backdrop, density, isLightTheme, connection),
@@ -188,6 +201,7 @@ internal fun FloatingNavigation(
             onPressProgress = { navPressProgress = it },
             modifier = Modifier
                 .align(Alignment.BottomStart)
+                .then(chromeImeModifier)
                 .navigationBarsPadding()
                 .padding(start = edge, bottom = 14.dp)
                 .width(navWidth)
@@ -198,6 +212,7 @@ internal fun FloatingNavigation(
             Box(
                 modifier = Modifier
                     .align(Alignment.BottomStart)
+                    .then(chromeImeModifier)
                     .navigationBarsPadding()
                     .padding(start = edge, bottom = 14.dp)
                     .width(navWidth)
@@ -205,11 +220,11 @@ internal fun FloatingNavigation(
                     .graphicsLayer { alpha = returnAlpha }
                     .clip(PrismalCapsule())
                     .clickable(enabled = searching, role = Role.Button, onClick = onReturnToTab)
-                    .semantics { contentDescription = "Return to ${previousTab.label}" },
+                    .semantics { contentDescription = "Return to Home" },
                 contentAlignment = Alignment.Center,
             ) {
                 Icon(
-                    painter = painterResource(previousTab.icon),
+                    painter = painterResource(Destination.Home.icon),
                     contentDescription = null,
                     tint = foreground,
                     modifier = Modifier.size(27.dp),
@@ -217,9 +232,31 @@ internal fun FloatingNavigation(
             }
         }
 
-        // Only a focused Search field follows its IME; the return circle stays at
-        // the bottom, as in Crescendo's original Search transition.
-        val searchImeModifier = if (searching && searchFocused) Modifier.imePadding() else Modifier
+        if (miniSong != null) {
+            val miniWidth = availableWidth * (1f - compact) + barHeight * compact
+            val miniStart = edge + (navWidth + gap) * compact
+            val miniBottom = 88.dp * (1f - compact) + 14.dp * compact
+            MiniPlayer(
+                song = miniSong,
+                artwork = artwork,
+                playing = miniPlaying,
+                loading = miniLoading,
+                error = miniError,
+                progress = miniProgress,
+                compact = compact,
+                onToggle = onMiniToggle,
+                onNext = onMiniNext,
+                pageBackdrop = pageBackdrop,
+                pageInput = pageInput,
+                liveBlur = liveBlur,
+                modifier = Modifier.align(Alignment.BottomStart)
+                    .then(chromeImeModifier).navigationBarsPadding()
+                    .padding(start = miniStart, bottom = miniBottom)
+                    .width(miniWidth),
+            )
+        }
+
+        // Home, player bubble and Search move together above the keyboard.
         val searchSurface = if (liveBlur && !PrismalGlass.supportsBackdropBlur) {
             Modifier
                 .clip(PrismalCapsule())
@@ -236,7 +273,7 @@ internal fun FloatingNavigation(
         Box(
             modifier = Modifier
                 .align(Alignment.BottomEnd)
-                .then(searchImeModifier)
+                .then(chromeImeModifier)
                 .navigationBarsPadding()
                 .padding(end = edge, bottom = 14.dp)
                 .width(searchWidth)
