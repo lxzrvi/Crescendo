@@ -67,6 +67,8 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.lxzrvi.crescendo.R
 import com.lxzrvi.crescendo.ui.onboarding.GradientBlobBackground
+import com.styropyr0.prismal.sources.prismalGlassLayer
+import com.styropyr0.prismal.sources.rememberPrismalGlassLayer
 import dev.chrisbanes.haze.HazeInput
 import dev.chrisbanes.haze.HazeSourceSelection
 import dev.chrisbanes.haze.hazeSource
@@ -74,7 +76,6 @@ import dev.chrisbanes.haze.rememberHazeState
 import kotlin.math.roundToInt
 
 internal const val PAGE_SOURCE_KEY = "page"
-internal const val NAV_SOURCE_KEY = "navigation-shell"
 
 internal enum class Destination(
     val label: String,
@@ -141,14 +142,9 @@ fun HomeScreen(gradientPhase: State<Float>, modifier: Modifier = Modifier) {
             selection = HazeSourceSelection.All.where { it.key == PAGE_SOURCE_KEY },
         )
     }
-    val selectorInput = remember(hazeState) {
-        HazeInput.Sources(
-            state = hazeState,
-            selection = HazeSourceSelection.All.where {
-                it.key == PAGE_SOURCE_KEY || it.key == NAV_SOURCE_KEY
-            },
-        )
-    }
+    // Both effects sample the same real scrolling content: Prismal for the
+    // floating controls, and Haze for the progressive status-area backdrop.
+    val pageBackdrop = rememberPrismalGlassLayer()
     val initialFade = remember { Animatable(0f) }
 
     // Each page keeps its own list state, including while the transition shows two pages at once.
@@ -164,8 +160,6 @@ fun HomeScreen(gradientPhase: State<Float>, modifier: Modifier = Modifier) {
         Destination.Settings -> settingsState
         Destination.Search -> searchState
     }
-    val blurStyle = rememberNavigationBlurStyle(colors.background)
-
     LaunchedEffect(Unit) {
         initialFade.animateTo(1f, tween(500, easing = FastOutSlowInEasing))
     }
@@ -200,6 +194,7 @@ fun HomeScreen(gradientPhase: State<Float>, modifier: Modifier = Modifier) {
             modifier = Modifier
                 .fillMaxSize()
                 .hazeSource(state = hazeState, zIndex = 0f, key = PAGE_SOURCE_KEY)
+                .then(if (appearance.liveBlur) Modifier.prismalGlassLayer(pageBackdrop) else Modifier)
                 .background(colors.background),
         ) {
             GradientBlobBackground(
@@ -257,10 +252,7 @@ fun HomeScreen(gradientPhase: State<Float>, modifier: Modifier = Modifier) {
             onReturnToTab = { closeSearch() },
             onSearchDone = { keyboard?.hide() },
             imeVisible = imeVisible,
-            hazeState = hazeState,
-            pageInput = pageInput,
-            selectorInput = selectorInput,
-            blurStyle = blurStyle,
+            pageBackdrop = pageBackdrop,
             liveBlur = appearance.liveBlur,
         )
     }

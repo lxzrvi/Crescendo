@@ -60,10 +60,14 @@ dependencies {
     implementation("androidx.compose.foundation:foundation")
     implementation("androidx.compose.material3:material3")
 
-    // Haze 2 uses a separate core module and typed blur effect.
+    // Haze still supplies the progressive blur behind the status bar.
     implementation("dev.chrisbanes.haze:haze:2.1.0")
     implementation("dev.chrisbanes.haze:haze-blur:2.1.0")
-    implementation("dev.chrisbanes.haze:haze-glass:2.1.0")
+
+    // Pinned upstream PrismalAGSL v1.0.7, including its AGSL assets and manifest.
+    // The AAR is vendored to avoid relying on a JitPack download during builds.
+    implementation(files("libs/PrismalAGSL-v1.0.7.aar"))
+    implementation("androidx.startup:startup-runtime:1.2.0")
 
     debugImplementation("androidx.compose.ui:ui-tooling")
 }

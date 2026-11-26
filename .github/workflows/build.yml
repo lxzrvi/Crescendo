@@ -34,7 +34,18 @@ jobs:
         run: chmod +x ./gradlew
 
       - name: Build debug APK
-        run: ./gradlew assembleDebug --no-daemon
+        shell: bash
+        run: |
+          set -o pipefail
+          ./gradlew assembleDebug --no-daemon 2>&1 | tee "$RUNNER_TEMP/crescendo-build.log"
+
+      - name: Upload build log if assembly fails
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: crescendo-build-log
+          path: ${{ runner.temp }}/crescendo-build.log
+          if-no-files-found: ignore
 
       - name: Upload APK artifact
         uses: actions/upload-artifact@v4

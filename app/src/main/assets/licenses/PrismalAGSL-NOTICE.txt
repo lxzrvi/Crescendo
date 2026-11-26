@@ -1,0 +1,18 @@
+PrismalAGSL v1.0.7
+https://github.com/styropyr0/PrismalAGSL
+Copyright (c) 2026 Saurav Sajeev
+
+Crescendo includes the upstream PrismalAGSL v1.0.7 Android archive (AAR)
+and adapts its PrismalGlassBottomTabs composable for Crescendo's existing
+navigation, long-press gestures, accessibility and Search transition.
+
+Source tag: v1.0.7
+Source commit: 43145e6d509b969536cce12e46a2fef153f81034
+AAR: https://jitpack.io/com/github/styropyr0/PrismalAGSL/v1.0.7/PrismalAGSL-v1.0.7.aar
+AAR SHA-256: b9f5587d9c8378db46cbadbcd1ab25ebbc46de89a8c5810cb54109ad81af42de
+
+The upstream repository is distributed under the MIT License, reproduced in
+PrismalAGSL-MIT.txt. The PrismalAgslAssets, PrismalAgslInitializer and
+PrismalAgslShaders source files also contain the following notice:
+Copyright 2025 Styropyr0; licensed under the Apache License, Version 2.0.
+That license is reproduced in Apache-2.0.txt.
