@@ -1,3 +1,5 @@
+@file:OptIn(androidx.compose.foundation.layout.ExperimentalLayoutApi::class)
+
 package com.lxzrvi.crescendo.ui.home
 
 import androidx.activity.compose.BackHandler
@@ -11,61 +13,57 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
-import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.asPaddingValues
-import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.ime
+import androidx.compose.foundation.layout.isImeVisible
 import androidx.compose.foundation.layout.navigationBars
-import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
-import androidx.compose.foundation.selection.selectable
-import androidx.compose.foundation.selection.selectableGroup
-import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.State
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
-import androidx.compose.runtime.saveable.rememberSaveableStateHolder
 import androidx.compose.runtime.setValue
-import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.luminance
-import androidx.compose.ui.res.painterResource
-import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.layout.onGloballyPositioned
+import androidx.compose.ui.layout.onSizeChanged
+import androidx.compose.ui.layout.positionInRoot
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalFocusManager
+import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.lxzrvi.crescendo.R
 import com.lxzrvi.crescendo.ui.onboarding.GradientBlobBackground
-import dev.chrisbanes.haze.HazeInput
-import dev.chrisbanes.haze.HazeState
-import dev.chrisbanes.haze.blur.HazeBlurStyle
-import dev.chrisbanes.haze.blur.HazeColorEffect
-import dev.chrisbanes.haze.blur.hazeBlur
 import dev.chrisbanes.haze.hazeSource
 import dev.chrisbanes.haze.rememberHazeState
+import kotlinx.coroutines.delay
 
-private enum class Destination(
+internal enum class Destination(
     val label: String,
     val subtitle: String,
     val cardLabel: String,
@@ -86,56 +84,99 @@ private enum class Destination(
     ),
     Settings(
         "Settings", "Make Crescendo feel like yours.",
-        "Preference", "Settings will appear here.", R.drawable.ic_nav_settings,
+        "Preference", "More settings will appear here.", R.drawable.ic_nav_settings,
     ),
     Search(
-        "Search", "Find your next favorite sound.",
-        "Search result", "Search results will appear here.", R.drawable.ic_nav_search,
+        "Search", "Search the sample cards for now.",
+        "Search result", "Your search results will appear here.", R.drawable.ic_nav_search,
     ),
 }
 
-/** Temporary, text-only pages with a shared floating navigation bar. */
+internal data class SampleCard(val destination: Destination, val number: Int) {
+    val title: String get() = "${destination.cardLabel} ${number.toString().padStart(2, '0')}"
+    val key: String get() = "sample:${destination.name}:$number"
+}
+
+private val searchableSamples = listOf(Destination.Home, Destination.Playlist, Destination.Library)
+    .flatMap { destination -> (1..36).map { SampleCard(destination, it) } }
+
+internal fun placeholderSurfaceColor(dark: Boolean, number: Int): Color =
+    if (dark) Color.White.copy(alpha = if (number % 2 == 0) 0.09f else 0.065f)
+    else Color.Black.copy(alpha = if (number % 2 == 0) 0.055f else 0.035f)
+
+/** Text-only sample pages with an independently animated nav and search control. */
 @Composable
 fun HomeScreen(gradientPhase: State<Float>, modifier: Modifier = Modifier) {
     val colors = MaterialTheme.colorScheme
     val dark = colors.background.luminance() < 0.5f
-    val hazeState = rememberHazeState()
-    val pageState = rememberSaveableStateHolder()
+    val context = LocalContext.current
+    val keyboard = LocalSoftwareKeyboardController.current
+    val focusManager = LocalFocusManager.current
+    val imeVisible = WindowInsets.isImeVisible
+    val prefs = remember(context) { NavigationAppearancePrefs(context) }
+    var appearance by remember(prefs) { mutableStateOf(prefs.load()) }
     var destination by rememberSaveable { mutableStateOf(Destination.Home) }
+    var previousTab by rememberSaveable { mutableStateOf(Destination.Home) }
+    var query by rememberSaveable { mutableStateOf("") }
+    val hazeState = rememberHazeState()
     val fadeIn = remember { Animatable(0f) }
+    val rootSize = remember { mutableStateOf(IntSize.Zero) }
+    val listOrigin = remember { mutableStateOf(Offset.Zero) }
+
+    // Remember all five states independently, so returning to a page restores its scroll.
+    val homeState = rememberLazyListState()
+    val playlistState = rememberLazyListState()
+    val libraryState = rememberLazyListState()
+    val settingsState = rememberLazyListState()
+    val searchState = rememberLazyListState()
+    val listState = when (destination) {
+        Destination.Home -> homeState
+        Destination.Playlist -> playlistState
+        Destination.Library -> libraryState
+        Destination.Settings -> settingsState
+        Destination.Search -> searchState
+    }
+    val blurStyle = rememberNavigationBlurStyle(appearance, colors.background)
+    val borderOverlay = if (appearance.liveBlur && appearance.radius > 0f) {
+        navigationTint(dark, appearance.type)
+    } else navigationFallbackTint(dark)
 
     LaunchedEffect(Unit) {
         fadeIn.animateTo(1f, tween(500, easing = FastOutSlowInEasing))
     }
-    BackHandler(enabled = destination != Destination.Home) {
-        destination = Destination.Home
+    // Debounce slider writes while the visual result still updates on every drag frame.
+    LaunchedEffect(appearance) {
+        delay(250)
+        prefs.save(appearance)
     }
 
-    val tint = if (dark) Color(0xFF1D1D20).copy(alpha = 0.56f)
-    else Color(0xFFF9F9F9).copy(alpha = 0.62f)
-    val fallback = if (dark) Color(0xFF19191B).copy(alpha = 0.94f)
-    else Color(0xFFF4F4F4).copy(alpha = 0.94f)
-    val glassBorder = if (dark) Color.White.copy(alpha = 0.15f)
-    else Color.Black.copy(alpha = 0.10f)
-    val blurStyle = remember(tint, fallback, colors.background) {
-        HazeBlurStyle {
-            // Also opt in to Haze's experimental RenderScript path on Android 11 and below.
-            blurEnabled(true)
-            blurRadius(20.dp)
-            noiseFactor(0f)
-            backgroundColor(colors.background)
-            colorEffects(listOf(HazeColorEffect.tint(tint)))
-            fallbackColorEffect(HazeColorEffect.tint(fallback))
+    fun closeSearch() {
+        keyboard?.hide()
+        focusManager.clearFocus(force = true)
+        destination = previousTab
+    }
+
+    BackHandler(enabled = destination != Destination.Home) {
+        when {
+            destination == Destination.Search && imeVisible -> {
+                keyboard?.hide()
+                focusManager.clearFocus(force = true)
+            }
+            destination == Destination.Search -> closeSearch()
+            else -> {
+                destination = Destination.Home
+                previousTab = Destination.Home
+            }
         }
     }
 
     Box(
         modifier = modifier
             .fillMaxSize()
-            .background(colors.background),
+            .background(colors.background)
+            .onSizeChanged { rootSize.value = it },
     ) {
-        // The source covers the full viewport, including the area beneath both controls.
-        // Scrolling cards and the moving gradient are captured together, not a static image.
+        // Both floating controls sample this actual full-screen source, including live scroll.
         Box(
             modifier = Modifier
                 .fillMaxSize()
@@ -146,9 +187,14 @@ fun HomeScreen(gradientPhase: State<Float>, modifier: Modifier = Modifier) {
                 phase = gradientPhase,
                 modifier = Modifier.fillMaxSize(),
             )
-            pageState.SaveableStateProvider(destination.name) {
+            key(destination) {
                 PlaceholderPage(
                     destination = destination,
+                    query = query,
+                    appearance = appearance,
+                    onAppearanceChange = { appearance = it },
+                    listState = listState,
+                    listOrigin = listOrigin,
                     fadeIn = fadeIn,
                 )
             }
@@ -156,35 +202,79 @@ fun HomeScreen(gradientPhase: State<Float>, modifier: Modifier = Modifier) {
 
         FloatingNavigation(
             selected = destination,
+            previousTab = previousTab,
+            query = query,
+            onQueryChange = { query = it.take(120) },
+            onSelectTab = { tab ->
+                keyboard?.hide()
+                focusManager.clearFocus(force = true)
+                previousTab = tab
+                destination = tab
+            },
+            onOpenSearch = {
+                if (destination != Destination.Search) {
+                    previousTab = destination
+                    destination = Destination.Search
+                }
+            },
+            onReturnToTab = { closeSearch() },
+            onSearchDone = {
+                keyboard?.hide()
+                focusManager.clearFocus(force = true)
+            },
+            imeVisible = imeVisible,
             hazeState = hazeState,
             blurStyle = blurStyle,
-            glassBorder = glassBorder,
-            onSelect = { destination = it },
-            modifier = Modifier.align(Alignment.BottomCenter),
+            borderOverlay = borderOverlay,
+            gradientPhase = gradientPhase,
+            rootSize = rootSize,
+            listOrigin = listOrigin,
+            listState = listState,
         )
     }
 }
 
 @Composable
-private fun PlaceholderPage(destination: Destination, fadeIn: Animatable<Float, *>) {
+private fun PlaceholderPage(
+    destination: Destination,
+    query: String,
+    appearance: NavigationAppearance,
+    onAppearanceChange: (NavigationAppearance) -> Unit,
+    listState: LazyListState,
+    listOrigin: androidx.compose.runtime.MutableState<Offset>,
+    fadeIn: Animatable<Float, *>,
+) {
     val colors = MaterialTheme.colorScheme
     val dark = colors.background.luminance() < 0.5f
-    val listState = rememberLazyListState()
     val bottomInset = WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding()
+    val imeInset = if (destination == Destination.Search) WindowInsets.ime.asPaddingValues().calculateBottomPadding() else 0.dp
+    val searchResults = remember(query) {
+        val needle = query.trim()
+        if (needle.isEmpty()) {
+            (1..36).map { SampleCard(Destination.Search, it) }
+        } else {
+            searchableSamples.filter { card ->
+                card.title.contains(needle, ignoreCase = true) ||
+                    card.destination.cardDetail.contains(needle, ignoreCase = true)
+            }
+        }
+    }
+    val cards = if (destination == Destination.Search) searchResults
+    else remember(destination) { (1..36).map { SampleCard(destination, it) } }
 
-    // Bottom padding makes the last card reachable above the bar while allowing every card
-    // to scroll behind it. Each destination retains its own position when switching tabs.
     LazyColumn(
         state = listState,
         modifier = Modifier
             .fillMaxSize()
             .statusBarsPadding()
+            .onGloballyPositioned { listOrigin.value = it.positionInRoot() }
             .graphicsLayer { alpha = fadeIn.value },
         contentPadding = PaddingValues(
             start = 20.dp,
             top = 28.dp,
             end = 20.dp,
-            bottom = bottomInset + 104.dp,
+            // The final result stays reachable above the search bar and keyboard.
+            bottom = maxOf(bottomInset, imeInset) + 104.dp,
         ),
         verticalArrangement = Arrangement.spacedBy(12.dp),
     ) {
@@ -206,136 +296,62 @@ private fun PlaceholderPage(destination: Destination, fadeIn: Animatable<Float, 
                 )
                 Spacer(Modifier.height(6.dp))
                 Text(
-                    text = destination.subtitle,
+                    text = if (destination == Destination.Search && query.isNotBlank()) {
+                        "${cards.size} matching sample cards"
+                    } else destination.subtitle,
                     color = colors.onBackground.copy(alpha = 0.68f),
                     style = MaterialTheme.typography.bodyMedium,
                 )
             }
         }
-        items(items = (1..36).toList(), key = { it }) { number ->
-            PlaceholderCard(destination = destination, number = number, dark = dark)
+        if (destination == Destination.Settings) {
+            item(key = "blur-settings") {
+                NavigationBlurSettings(appearance = appearance, onChange = onAppearanceChange)
+            }
+        }
+        if (destination == Destination.Search && cards.isEmpty()) {
+            item(key = "empty-search") {
+                Text(
+                    text = "No matching sample cards. Search currently filters placeholders only.",
+                    color = colors.onBackground.copy(alpha = 0.68f),
+                    style = MaterialTheme.typography.bodyMedium,
+                    modifier = Modifier.padding(top = 12.dp),
+                )
+            }
+        }
+        items(items = cards, key = { it.key }) { card ->
+            PlaceholderCard(card = card, dark = dark)
         }
     }
 }
 
 @Composable
-private fun PlaceholderCard(destination: Destination, number: Int, dark: Boolean) {
+private fun PlaceholderCard(card: SampleCard, dark: Boolean) {
     val colors = MaterialTheme.colorScheme
     val shape = RoundedCornerShape(18.dp)
-    val cardColor = if (dark) Color.White.copy(alpha = if (number % 2 == 0) 0.09f else 0.065f)
-    else Color.Black.copy(alpha = if (number % 2 == 0) 0.055f else 0.035f)
     val cardBorder = colors.onBackground.copy(alpha = if (dark) 0.08f else 0.06f)
-    val numberLabel = number.toString().padStart(2, '0')
 
     Column(
         modifier = Modifier
             .fillMaxWidth()
             .heightIn(min = 94.dp)
             .clip(shape)
-            .background(cardColor)
+            .background(placeholderSurfaceColor(dark, card.number))
             .border(1.dp, cardBorder, shape)
             .padding(horizontal = 18.dp, vertical = 16.dp),
         verticalArrangement = Arrangement.Center,
     ) {
         Text(
-            text = "${destination.cardLabel} $numberLabel",
+            text = card.title,
             color = colors.onBackground,
             style = MaterialTheme.typography.titleSmall,
             fontWeight = FontWeight.SemiBold,
         )
         Spacer(Modifier.height(5.dp))
         Text(
-            text = destination.cardDetail,
+            text = card.destination.cardDetail,
             color = colors.onBackground.copy(alpha = 0.64f),
             style = MaterialTheme.typography.bodySmall,
         )
-    }
-}
-
-@Composable
-private fun FloatingNavigation(
-    selected: Destination,
-    hazeState: HazeState,
-    blurStyle: HazeBlurStyle,
-    glassBorder: Color,
-    onSelect: (Destination) -> Unit,
-    modifier: Modifier = Modifier,
-) {
-    val input = remember(hazeState) { HazeInput.Sources(hazeState) }
-    Row(
-        modifier = modifier
-            .fillMaxWidth()
-            .navigationBarsPadding()
-            .padding(start = 18.dp, end = 18.dp, bottom = 14.dp),
-        horizontalArrangement = Arrangement.spacedBy(10.dp),
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        Row(
-            modifier = Modifier
-                .weight(1f)
-                .height(64.dp)
-                .clip(CircleShape)
-                .hazeBlur(input = input, style = blurStyle)
-                .border(1.dp, glassBorder, CircleShape)
-                .selectableGroup(),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            listOf(Destination.Home, Destination.Playlist, Destination.Library, Destination.Settings)
-                .forEach { item ->
-                    NavigationItem(
-                        destination = item,
-                        selected = item == selected,
-                        onSelect = { onSelect(item) },
-                        modifier = Modifier.weight(1f),
-                    )
-                }
-        }
-
-        Box(
-            modifier = Modifier
-                .size(64.dp)
-                .clip(CircleShape)
-                .hazeBlur(input = input, style = blurStyle)
-                .border(1.dp, glassBorder, CircleShape),
-            contentAlignment = Alignment.Center,
-        ) {
-            NavigationItem(
-                destination = Destination.Search,
-                selected = selected == Destination.Search,
-                onSelect = { onSelect(Destination.Search) },
-                modifier = Modifier.fillMaxSize(),
-            )
-        }
-    }
-}
-
-@Composable
-private fun NavigationItem(
-    destination: Destination,
-    selected: Boolean,
-    onSelect: () -> Unit,
-    modifier: Modifier = Modifier,
-) {
-    val ink = MaterialTheme.colorScheme.onBackground
-    Box(
-        modifier = modifier
-            .fillMaxHeight()
-            .selectable(selected = selected, onClick = onSelect, role = Role.Tab),
-        contentAlignment = Alignment.Center,
-    ) {
-        Box(
-            modifier = Modifier
-                .size(44.dp)
-                .clip(CircleShape)
-                .background(if (selected) ink.copy(alpha = 0.10f) else Color.Transparent),
-            contentAlignment = Alignment.Center,
-        ) {
-            Icon(
-                painter = painterResource(destination.icon),
-                contentDescription = destination.label,
-                tint = if (selected) ink else ink.copy(alpha = 0.60f),
-                modifier = Modifier.size(26.dp),
-            )
-        }
     }
 }
