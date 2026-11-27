@@ -8,6 +8,10 @@ package com.lxzrvi.crescendo.ui.home
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.SharedTransitionLayout
 import androidx.compose.animation.core.FastOutSlowInEasing
+import androidx.compose.animation.core.RepeatMode
+import androidx.compose.animation.core.animateFloat
+import androidx.compose.animation.core.infiniteRepeatable
+import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
@@ -33,11 +37,13 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.CutCornerShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -46,6 +52,7 @@ import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.lerp
 import androidx.compose.ui.graphics.luminance
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
@@ -264,7 +271,21 @@ private fun CollectionTile(
     onOpen: (() -> Unit)? = null,
     onBack: (() -> Unit)? = null,
 ) {
-    val shape = RoundedCornerShape(if (expanded) 23.dp else 19.dp)
+    val shape = if (expanded) RoundedCornerShape(25.dp) else when (category) {
+        CollectionKind.Liked -> RoundedCornerShape(50)
+        CollectionKind.Recent -> RoundedCornerShape(topStart = 14.dp, topEnd = 48.dp, bottomEnd = 14.dp, bottomStart = 48.dp)
+        CollectionKind.MostPlayed -> RoundedCornerShape(29.dp)
+        CollectionKind.Added -> CutCornerShape(topStart = 24.dp, topEnd = 5.dp, bottomEnd = 24.dp, bottomStart = 5.dp)
+        CollectionKind.All -> RoundedCornerShape(10.dp)
+        CollectionKind.Albums -> RoundedCornerShape(topStart = 48.dp, topEnd = 9.dp, bottomEnd = 48.dp, bottomStart = 9.dp)
+        CollectionKind.Artists -> RoundedCornerShape(topStart = 9.dp, topEnd = 34.dp, bottomEnd = 9.dp, bottomStart = 34.dp)
+        CollectionKind.Long -> CutCornerShape(topStart = 5.dp, topEnd = 28.dp, bottomEnd = 5.dp, bottomStart = 28.dp)
+    }
+    val motion by rememberInfiniteTransition(label = "collection-${category.name}").animateFloat(
+        0f, 1f,
+        animationSpec = infiniteRepeatable(tween(2800 + category.ordinal * 220, easing = FastOutSlowInEasing), RepeatMode.Reverse),
+        label = "collectionArtwork",
+    )
     val description = when (category) {
         CollectionKind.Albums -> if (count == 1) "1 album" else "$count albums"
         CollectionKind.Artists -> if (count == 1) "1 artist" else "$count artists"
@@ -277,6 +298,15 @@ private fun CollectionTile(
             .then(if (onOpen != null) Modifier.clickable(role = Role.Button, onClick = onOpen) else Modifier)
             .semantics { contentDescription = "${category.label}, $description" },
     ) {
+        // A floating, collection-specific glyph makes each box feel alive without
+        // inventing artwork or altering the user's real collection data.
+        Text(category.symbol, color = Color.White.copy(alpha = 0.14f),
+            fontSize = if (expanded) 138.sp else 98.sp, lineHeight = if (expanded) 142.sp else 100.sp,
+            modifier = Modifier.align(Alignment.CenterEnd).padding(end = 14.dp)
+                .graphicsLayer {
+                    translationY = (motion - 0.5f) * 14.dp.toPx()
+                    rotationZ = (motion - 0.5f) * (8f + category.ordinal)
+                })
         if (onBack != null) {
             Box(Modifier.align(Alignment.TopStart).padding(14.dp).size(38.dp).clip(CircleShape)
                 .background(Color.Black.copy(alpha = 0.18f))

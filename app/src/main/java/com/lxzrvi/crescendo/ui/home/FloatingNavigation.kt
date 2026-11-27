@@ -426,13 +426,20 @@ private fun SearchInput(
         modifier = modifier.padding(start = 18.dp, end = 12.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        Icon(
-            painter = painterResource(Destination.Search.icon),
-            contentDescription = null,
-            tint = foreground,
-            modifier = Modifier.size(21.dp),
-        )
-        Spacer(Modifier.width(12.dp))
+        Box(Modifier.size(36.dp), contentAlignment = Alignment.Center) {
+            if (query.isNotEmpty()) {
+                Box(Modifier.size(36.dp).clip(PrismalCapsule())
+                    .clickable(enabled = enabled, role = Role.Button) { onQueryChange("") }
+                    .semantics { contentDescription = "Clear search" }, contentAlignment = Alignment.Center) {
+                    Icon(painterResource(R.drawable.ic_close), contentDescription = null,
+                        tint = foreground.copy(alpha = 0.78f), modifier = Modifier.size(19.dp))
+                }
+            } else {
+                Icon(painterResource(Destination.Search.icon), contentDescription = null,
+                    tint = foreground, modifier = Modifier.size(21.dp))
+            }
+        }
+        Spacer(Modifier.width(10.dp))
         BasicTextField(
             value = query,
             onValueChange = onQueryChange,
@@ -459,18 +466,6 @@ private fun SearchInput(
                 }
             },
         )
-        if (query.isNotEmpty()) {
-            Box(
-                modifier = Modifier
-                    .size(36.dp)
-                    .clip(PrismalCapsule())
-                    .clickable(enabled = enabled, role = Role.Button) { onQueryChange("") }
-                    .semantics { contentDescription = "Clear search" },
-                contentAlignment = Alignment.Center,
-            ) {
-                Icon(painterResource(R.drawable.ic_close), contentDescription = null,
-                    tint = foreground.copy(alpha = 0.78f), modifier = Modifier.size(19.dp))
-            }
-        }
+
     }
 }

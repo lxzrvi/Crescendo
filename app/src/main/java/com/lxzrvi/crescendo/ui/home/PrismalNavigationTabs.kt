@@ -47,16 +47,17 @@ import androidx.compose.runtime.setValue
 import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.drawWithContent
-import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Offset
-import androidx.compose.ui.geometry.RoundRect
+import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.graphics.BlendMode
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.Path
-import androidx.compose.ui.graphics.drawscope.clipPath
+import androidx.compose.ui.graphics.ColorFilter
+import androidx.compose.ui.graphics.Paint
+import androidx.compose.ui.graphics.drawscope.scale
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.key.Key
 import androidx.compose.ui.input.key.KeyEventType
@@ -87,6 +88,8 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.util.lerp
 import com.styropyr0.prismal.PrismalBackdrop
+import com.styropyr0.prismal.PrismalGlass
+import com.styropyr0.prismal.PrismalGlassPipeline
 import com.styropyr0.prismal.depth.PrismalDepthInset
 import com.styropyr0.prismal.depth.PrismalDepthShadow
 import com.styropyr0.prismal.drawPrismalGlass
@@ -94,6 +97,10 @@ import com.styropyr0.prismal.effects.applyPrismalGlassEffects
 import com.styropyr0.prismal.interactive.PrismalPressRipple
 import com.styropyr0.prismal.interactive.PrismalSpringMotion
 import com.styropyr0.prismal.shapes.PrismalCapsule
+import com.styropyr0.prismal.sources.prismalGlassLayer
+import com.styropyr0.prismal.sources.rememberPrismalGlassLayer
+import com.styropyr0.prismal.sources.rememberPrismalMergedSource
+import com.styropyr0.prismal.sources.rememberPrismalWrappedSource
 import com.styropyr0.prismal.specular.PrismalSpecular
 import kotlinx.coroutines.flow.drop
 import kotlinx.coroutines.launch
@@ -117,6 +124,8 @@ internal fun PrismalNavigationTabs(
     modifier: Modifier = Modifier,
 ) {
     val tabsCount = tabs.size
+    val tabsBackdrop = rememberPrismalGlassLayer()
+    tabsBackdrop.readSamplingState()
     val density = LocalDensity.current
     val isLtr = LocalLayoutDirection.current == LayoutDirection.Ltr
     val scope = rememberCoroutineScope()
@@ -183,6 +192,19 @@ internal fun PrismalNavigationTabs(
                 }
         }
 
+        val lensAvailable = PrismalGlass.pipeline == PrismalGlassPipeline.Liquid
+        val contentShrink = if (lensAvailable) 0.92f else 1f
+        val shrunkTabsBackdrop = rememberPrismalWrappedSource(tabsBackdrop) { drawTabs ->
+            val progress = if (lensAvailable) motion.pressProgress else 0f
+            scale(
+                scaleX = lerp(1f, 0.92f, progress),
+                scaleY = lerp(1f, 0.92f, progress),
+            ) { drawTabs() }
+        }
+        val mergedDropletBackdrop = rememberPrismalMergedSource(backdrop, shrunkTabsBackdrop)
+        val dropletBackdrop = if (PrismalGlass.pipeline == PrismalGlassPipeline.Legacy) {
+            shrunkTabsBackdrop
+        } else mergedDropletBackdrop
         val interactiveSpecular = remember(scope, tabWidth, isLtr, pressGlow) {
             PrismalPressRipple(
                 animationScope = scope,
@@ -295,8 +317,6 @@ internal fun PrismalNavigationTabs(
                         },
                         onDrawSurface = { drawRect(containerColor) },
                     )
-                    // Retain the original press response beneath the crisp icon overlay.
-                    .then(interactiveSpecular.modifier)
                     .height(64.dp)
                     .fillMaxWidth()
                     .padding(4.dp),
@@ -317,6 +337,57 @@ internal fun PrismalNavigationTabs(
                 }
             }
 
+            // As in Prismal, the second (invisible) 56 dp row is the droplet's
+            // live nested source, recolored with Crescendo's red accent.
+            Row(
+                Modifier
+                    .clearAndSetSemantics {}
+                    .alpha(0f)
+                    .prismalGlassLayer(tabsBackdrop)
+                    .graphicsLayer { translationX = panelOffset }
+                    .drawPrismalGlass(
+                        backdrop = backdrop,
+                        shape = { PrismalCapsule() },
+                        effects = {
+                            applyPrismalGlassEffects(
+                                density = density,
+                                adaptiveLuminance = false,
+                                luminance = 0.5f,
+                                blurRadiusPx = with(density) { 4.dp.toPx() },
+                                refractionHeightPx = with(density) { 16.dp.toPx() },
+                                refractionAmountPx = with(density) { 28.dp.toPx() },
+                            )
+                        },
+                        specular = { PrismalSpecular.Default.copy(alpha = motion.pressProgress) },
+                        onDrawSurface = { drawRect(containerColor) },
+                    )
+                    .then(interactiveSpecular.modifier)
+                    .height(56.dp)
+                    .fillMaxWidth()
+                    .padding(horizontal = 4.dp)
+                    .drawWithContent {
+                        val paint = Paint().apply { colorFilter = ColorFilter.tint(dropletTint) }
+                        drawContext.canvas.saveLayer(Rect(0f, 0f, size.width, size.height), paint)
+                        drawContent()
+                        drawContext.canvas.restore()
+                    },
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                tabs.forEachIndexed { index, destination ->
+                    PrismalNavigationItem(
+                        destination = destination,
+                        selected = selectedIndex == index,
+                        enabled = false,
+                        captureOnly = true,
+                        showLabel = showLabels,
+                        alpha = tabsAlpha,
+                        scale = { lerp(1f, 1.05f / contentShrink, motion.pressProgress) },
+                        isLightTheme = isLightTheme,
+                        onSelect = {},
+                    )
+                }
+            }
+
             Box(
                 Modifier
                     .padding(horizontal = 4.dp)
@@ -330,8 +401,7 @@ internal fun PrismalNavigationTabs(
                     .height(56.dp)
                     .fillMaxWidth(1f / tabsCount)
                     .drawPrismalGlass(
-                        // Blur only the page behind the selector, never the icon itself.
-                        backdrop = backdrop,
+                        backdrop = dropletBackdrop,
                         shape = { PrismalCapsule() },
                         effects = {
                             val progress = motion.pressProgress
@@ -385,43 +455,6 @@ internal fun PrismalNavigationTabs(
                         },
                     ),
             )
-
-            // Draw the accent icons sharply on top, clipped to the moving pill.
-            // The pill samples/blurs only the page, so its icon never becomes blurry.
-            Row(
-                Modifier.clearAndSetSemantics {}
-                    .graphicsLayer { translationX = panelOffset; alpha = indicatorAlpha }
-                    .height(56.dp).fillMaxWidth().padding(horizontal = 4.dp)
-                    .drawWithContent {
-                        val position = if (isLtr) motion.value else (tabsCount - 1) - motion.value
-                        val left = position * tabWidth
-                        val corner = CornerRadius(minOf(tabWidth, size.height) / 2f)
-                        val mask = Path().apply {
-                            addRoundRect(RoundRect(
-                                left = left, top = 0f, right = left + tabWidth, bottom = size.height,
-                                topLeftCornerRadius = corner, topRightCornerRadius = corner,
-                                bottomRightCornerRadius = corner, bottomLeftCornerRadius = corner,
-                            ))
-                        }
-                        clipPath(mask) { this@drawWithContent.drawContent() }
-                    },
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                tabs.forEachIndexed { index, destination ->
-                    PrismalNavigationItem(
-                        destination = destination,
-                        selected = selectedIndex == index,
-                        enabled = false,
-                        captureOnly = true,
-                        showLabel = showLabels,
-                        alpha = tabsAlpha,
-                        scale = { lerp(1f, 1.05f, motion.pressProgress) },
-                        isLightTheme = isLightTheme,
-                        tintOverride = dropletTint,
-                        onSelect = {},
-                    )
-                }
-            }
         }
     }
 }
@@ -437,7 +470,6 @@ private fun RowScope.PrismalNavigationItem(
     alpha: Float,
     scale: () -> Float,
     isLightTheme: Boolean,
-    tintOverride: Color? = null,
     onSelect: () -> Unit,
 ) {
     val input = if (captureOnly) Modifier else Modifier
@@ -456,8 +488,9 @@ private fun RowScope.PrismalNavigationItem(
             contentDescription = destination.label
             if (enabled) onClick { onSelect(); true } else disabled()
         }
-    // The base stays neutral; only the separate clipped overlay uses the accent.
-    val foreground = tintOverride ?: if (isLightTheme) Color.Black else Color.White
+    // The tinted live source inside the moving droplet colors only the icon it covers.
+    // Do not keep the last selected base icon red while the pill is travelling away.
+    val foreground = if (isLightTheme) Color.Black else Color.White
     Column(
         Modifier
             .clip(PrismalCapsule())

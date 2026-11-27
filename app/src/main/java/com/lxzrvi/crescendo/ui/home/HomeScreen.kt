@@ -173,7 +173,7 @@ private fun HomeScreenContent(
     var startupReady by remember { mutableStateOf(false) }
     // Avoid leaving the branded screen up forever if a device's media provider hangs.
     LaunchedEffect(startupCycle) {
-        delay(4_000)
+        delay(5_000)
         startupReady = true
     }
     LaunchedEffect(library, startupCycle) {
@@ -192,7 +192,7 @@ private fun HomeScreenContent(
                     }
                 }
             }
-            val remaining = 900L - (SystemClock.elapsedRealtime() - startedAt)
+            val remaining = 1_800L - (SystemClock.elapsedRealtime() - startedAt)
             if (remaining > 0) delay(remaining)
             startupReady = true
         }
@@ -227,9 +227,11 @@ private fun HomeScreenContent(
         HazeInput.Sources(state = hazeState, selection = HazeSourceSelection.All.where { it.key == PAGE_SOURCE_KEY })
     }
     val pageBackdrop = rememberPrismalGlassLayer()
+    val wallpaperBackdrop = rememberPrismalGlassLayer()
     val initialFade = remember { Animatable(0f) }
     val homeState = rememberLazyListState()
     val quickState = rememberLazyListState()
+    val moodsState = rememberLazyListState()
     val playlistState = rememberLazyListState()
     val libraryState = rememberLazyListState()
     val libraryDetailState = rememberLazyListState()
@@ -247,7 +249,7 @@ private fun HomeScreenContent(
     val activeState = stateFor(destination)
     // Dock only while a scroll is actually in progress, not because the page is deep.
     val miniCollapsed = activeState.isScrollInProgress ||
-        (destination == Destination.Home && quickState.isScrollInProgress)
+        (destination == Destination.Home && (quickState.isScrollInProgress || moodsState.isScrollInProgress))
 
     fun closeSearch() {
         keyboard?.hide()
@@ -274,7 +276,10 @@ private fun HomeScreenContent(
                 .then(if (appearance.liveBlur) Modifier.prismalGlassLayer(pageBackdrop) else Modifier)
                 .background(colors.background),
         ) {
-            AppPhotoBackground(appearance)
+            // A separate source for in-page glass avoids sampling the page into itself.
+            Box(Modifier.fillMaxSize().prismalGlassLayer(wallpaperBackdrop).background(colors.background)) {
+                AppPhotoBackground(appearance)
+            }
             AnimatedContent(
                 targetState = destination,
                 modifier = Modifier.fillMaxSize(),
@@ -296,10 +301,10 @@ private fun HomeScreenContent(
                     Destination.Home -> HomeMusicPage(
                         library = library, playCounts = playCounts, artwork = artwork,
                         currentSong = currentSong, isPlaying = playback.isPlaying,
-                        shuffleEnabled = playback.shuffleEnabled, animateHero = appearance.animateHero,
+                        shuffleEnabled = playback.shuffleEnabled, animateHero = appearance.animateHero, liveBlur = appearance.liveBlur,
                         onSongClick = playback::select,
                         onShuffle = { playback.toggleShuffle((library as? MusicLibraryState.Ready)?.songs.orEmpty()) },
-                        listState = homeState, quickState = quickState,
+                        listState = homeState, quickState = quickState, moodsState = moodsState,
                         bottomPadding = pageBottomPadding, modifier = fade,
                     )
                     Destination.Library -> LibraryCollectionsPage(
@@ -314,6 +319,7 @@ private fun HomeScreenContent(
                         destination = page, library = library, query = query, artwork = artwork,
                         currentSong = currentSong, isPlaying = playback.isPlaying, onSongClick = playback::select,
                         appearance = appearance, onAppearanceChange = onAppearanceChange,
+                        settingsBackdrop = wallpaperBackdrop,
                         listState = stateFor(page), bottomPadding = pageBottomPadding, modifier = fade,
                     )
                 }

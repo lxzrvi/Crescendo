@@ -13,6 +13,7 @@ import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.remember
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.luminance
+import androidx.compose.ui.graphics.lerp
 
 private val DarkCrescendoColors = darkColorScheme(
     primary = Accent,
@@ -48,10 +49,29 @@ fun CrescendoTheme(
     content: @Composable () -> Unit,
 ) {
     val base = if (darkTheme) DarkCrescendoColors else LightCrescendoColors
-    val colors = if (accent == null) base else base.copy(
-        primary = accent,
-        onPrimary = if (accent.luminance() > 0.50f) Color.Black else Color.White,
-        secondary = accent,
+    // Material's unspecified container colors default to purple. Derive all
+    // accent-bearing slots from the user's existing Crescendo accent instead.
+    val effectiveAccent = accent ?: base.primary
+    val mutedAccent = lerp(base.surface, effectiveAccent, if (darkTheme) 0.32f else 0.18f)
+    val colors = base.copy(
+        primary = effectiveAccent,
+        onPrimary = if (accent == null) base.onPrimary else if (effectiveAccent.luminance() > 0.50f) Color.Black else Color.White,
+        primaryContainer = mutedAccent,
+        onPrimaryContainer = base.onSurface,
+        secondary = effectiveAccent,
+        onSecondary = if (effectiveAccent.luminance() > 0.50f) Color.Black else Color.White,
+        secondaryContainer = mutedAccent,
+        onSecondaryContainer = base.onSurface,
+        tertiary = effectiveAccent,
+        onTertiary = if (effectiveAccent.luminance() > 0.50f) Color.Black else Color.White,
+        tertiaryContainer = mutedAccent,
+        onTertiaryContainer = base.onSurface,
+        surfaceTint = effectiveAccent,
+        surfaceContainerLowest = base.background,
+        surfaceContainerLow = base.surface,
+        surfaceContainer = lerp(base.surface, base.onSurface, 0.06f),
+        surfaceContainerHigh = lerp(base.surface, base.onSurface, 0.10f),
+        surfaceContainerHighest = lerp(base.surface, base.onSurface, 0.14f),
     )
     val smoothIndication = remember(colors.onBackground) { SmoothIndication(colors.onBackground) }
     MaterialTheme(
