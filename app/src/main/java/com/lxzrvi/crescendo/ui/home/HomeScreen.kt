@@ -17,6 +17,8 @@ import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.WindowInsets
@@ -25,9 +27,14 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.ime
 import androidx.compose.foundation.layout.isImeVisible
 import androidx.compose.foundation.layout.navigationBars
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -35,7 +42,6 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.SideEffect
-import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableLongStateOf
@@ -44,13 +50,20 @@ import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.platform.LocalView
+import androidx.compose.ui.res.painterResource
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
 import androidx.core.view.WindowCompat
 import androidx.lifecycle.Lifecycle
@@ -128,11 +141,11 @@ private fun HomeScreenContent(
     val lifecycle = LocalLifecycleOwner.current.lifecycle
     val keyboard = LocalSoftwareKeyboardController.current
     val focusManager = LocalFocusManager.current
-    val density = LocalDensity.current
     val imeVisible = WindowInsets.isImeVisible
     var destination by rememberSaveable { mutableStateOf(Destination.Home) }
     var previousTab by rememberSaveable { mutableStateOf(Destination.Home) }
     var query by rememberSaveable { mutableStateOf("") }
+    var libraryCategory by rememberSaveable { mutableStateOf<CollectionKind?>(null) }
     var showProfile by rememberSaveable { mutableStateOf(false) }
     val library = rememberMusicLibrary()
     val artwork = remember(context) { AlbumArtworkLoader(context) }
@@ -219,22 +232,22 @@ private fun HomeScreenContent(
     val quickState = rememberLazyListState()
     val playlistState = rememberLazyListState()
     val libraryState = rememberLazyListState()
+    val libraryDetailState = rememberLazyListState()
     val settingsState = rememberLazyListState()
     val searchState = rememberLazyListState()
     fun stateFor(page: Destination): LazyListState = when (page) {
         Destination.Home -> homeState
         Destination.Playlist -> playlistState
-        Destination.Library -> libraryState
+        Destination.Library -> if (libraryCategory == null) libraryState else libraryDetailState
         Destination.Settings -> settingsState
         Destination.Search -> searchState
     }
     LaunchedEffect(Unit) { initialFade.animateTo(1f, tween(500, easing = FastOutSlowInEasing)) }
     LaunchedEffect(query) { searchState.scrollToItem(0) }
     val activeState = stateFor(destination)
-    val collapseThreshold = with(density) { 24.dp.roundToPx() }
-    val miniCollapsed by remember(activeState, collapseThreshold) {
-        derivedStateOf { activeState.firstVisibleItemIndex > 0 || activeState.firstVisibleItemScrollOffset > collapseThreshold }
-    }
+    // Dock only while a scroll is actually in progress, not because the page is deep.
+    val miniCollapsed = activeState.isScrollInProgress ||
+        (destination == Destination.Home && quickState.isScrollInProgress)
 
     fun closeSearch() {
         keyboard?.hide()
@@ -245,6 +258,7 @@ private fun HomeScreenContent(
         when {
             destination == Destination.Search && imeVisible -> keyboard?.hide()
             destination == Destination.Search -> closeSearch()
+            destination == Destination.Library && libraryCategory != null -> libraryCategory = null
             else -> { destination = Destination.Home; previousTab = Destination.Home }
         }
     }
@@ -283,17 +297,18 @@ private fun HomeScreenContent(
                         library = library, playCounts = playCounts, artwork = artwork,
                         currentSong = currentSong, isPlaying = playback.isPlaying,
                         shuffleEnabled = playback.shuffleEnabled, animateHero = appearance.animateHero,
-                        photoBehind = appearance.backgroundPhotoVersion > 0,
                         onSongClick = playback::select,
                         onShuffle = { playback.toggleShuffle((library as? MusicLibraryState.Ready)?.songs.orEmpty()) },
-                        onProfileClick = { showProfile = true }, listState = homeState, quickState = quickState,
+                        listState = homeState, quickState = quickState,
                         bottomPadding = pageBottomPadding, modifier = fade,
                     )
                     Destination.Library -> LibraryCollectionsPage(
                         library = library, playCounts = playCounts, recentTimes = recentTimes, liked = liked,
                         artwork = artwork, currentSong = currentSong, isPlaying = playback.isPlaying,
                         onSongClick = playback::select, onLike = { liked = history.toggleLiked(it) },
-                        listState = libraryState, bottomPadding = pageBottomPadding, modifier = fade,
+                        category = libraryCategory, onCategoryChange = { libraryCategory = it },
+                        overviewState = libraryState, detailState = libraryDetailState,
+                        bottomPadding = pageBottomPadding, modifier = fade,
                     )
                     else -> MusicListPage(
                         destination = page, library = library, query = query, artwork = artwork,
@@ -305,6 +320,13 @@ private fun HomeScreenContent(
             }
         }
         StatusBarBackdrop(input = pageInput, liveBlur = appearance.liveBlur)
+        if (destination != Destination.Settings) {
+            ProfileButton(
+                onClick = { showProfile = true },
+                modifier = Modifier.align(Alignment.TopEnd).statusBarsPadding()
+                    .padding(end = ContentSidePadding, top = 8.dp),
+            )
+        }
         FloatingNavigation(
             selected = destination, previousTab = previousTab, query = query,
             onQueryChange = { query = it.take(120) },
@@ -314,12 +336,7 @@ private fun HomeScreenContent(
                 destination = tab
             },
             onOpenSearch = { if (destination != Destination.Search) { previousTab = destination; destination = Destination.Search } },
-            onReturnToTab = {
-                keyboard?.hide()
-                focusManager.clearFocus(force = true)
-                previousTab = Destination.Home
-                destination = Destination.Home
-            }, onSearchDone = { keyboard?.hide() },
+            onReturnToTab = { closeSearch() }, onSearchDone = { keyboard?.hide() },
             imeVisible = imeVisible, pageBackdrop = pageBackdrop, pageInput = pageInput, liveBlur = appearance.liveBlur,
             miniSong = currentSong, artwork = artwork, miniPlaying = playback.isPlaying,
             miniLoading = playback.isLoading, miniError = playback.errorMessage, miniProgress = progress,
@@ -339,5 +356,23 @@ private fun HomeScreenContent(
             text = { Text("Your music stays on this device. Your local library has $count ${if (count == 1) "song" else "songs"}.") },
             confirmButton = { TextButton(onClick = { showProfile = false }) { Text("Done") } },
         )
+    }
+}
+
+/** Pinned above all pages except Settings, independent of list scroll position. */
+@Composable
+private fun ProfileButton(onClick: () -> Unit, modifier: Modifier = Modifier) {
+    val colors = MaterialTheme.colorScheme
+    val dark = colors.background.luminance() < 0.5f
+    Box(
+        modifier = modifier.size(42.dp).clip(CircleShape)
+            .background(if (dark) Color.Black.copy(alpha = 0.42f) else Color.White.copy(alpha = 0.72f))
+            .border(0.7.dp, colors.onBackground.copy(alpha = 0.18f), CircleShape)
+            .clickable(role = Role.Button, onClick = onClick)
+            .semantics { contentDescription = "Profile" },
+        contentAlignment = Alignment.Center,
+    ) {
+        Icon(painterResource(R.drawable.ic_profile), contentDescription = null,
+            tint = colors.onBackground, modifier = Modifier.size(23.dp))
     }
 }

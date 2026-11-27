@@ -90,10 +90,8 @@ internal fun HomeMusicPage(
     isPlaying: Boolean,
     shuffleEnabled: Boolean,
     animateHero: Boolean,
-    photoBehind: Boolean,
     onSongClick: (Song) -> Unit,
     onShuffle: () -> Unit,
-    onProfileClick: () -> Unit,
     listState: LazyListState,
     quickState: LazyListState,
     bottomPadding: Dp,
@@ -118,12 +116,14 @@ internal fun HomeMusicPage(
     }
     val headerOffset = with(density) { (statusInset + 18.dp).roundToPx() }
 
-    LaunchedEffect(topIds, animateHero) {
+    // Restart the slower timer after a manual swipe; never change an off-screen cover.
+    LaunchedEffect(topIds, animateHero, featuredIndex) {
         if (animateHero && topIds.size > 1) {
             while (true) {
-                delay(6_500)
+                delay(10_000)
                 if (listState.layoutInfo.visibleItemsInfo.any { it.key == "home-hero" }) {
                     featuredIndex = (featuredIndex + 1) % topIds.size
+                    break
                 }
             }
         }
@@ -144,10 +144,13 @@ internal fun HomeMusicPage(
                     playing = isPlaying && featured?.id == currentSong?.id,
                     shuffleEnabled = shuffleEnabled,
                     animate = animateHero,
-                    photoBehind = photoBehind,
+                    canSwipe = topSongs.size > 1,
                     onPlay = { featured?.let(onSongClick) },
                     onShuffle = onShuffle,
-                    onProfile = onProfileClick,
+                    onSwipe = { direction ->
+                        if (topSongs.size > 1) featuredIndex =
+                            (featuredIndex + direction + topSongs.size) % topSongs.size
+                    },
                 )
             }
             when (library) {
@@ -275,24 +278,20 @@ private fun SongGridCard(
     val colors = MaterialTheme.colorScheme
     val visual by rememberArtworkVisual(song, artwork, 96.dp)
     val dark = colors.background.luminance() < 0.5f
-    val cardColor = visual.dominant?.let { rgb ->
-        lerp(colors.background, Color(rgb), if (dark) 0.42f else 0.21f)
-    } ?: colors.surfaceVariant
-    val shape = RoundedCornerShape(15.dp)
-    val border = remember(dark) {
-        if (dark) Brush.linearGradient(listOf(Color.White.copy(alpha = 0.34f), Color.White.copy(alpha = 0.08f), Color.White.copy(alpha = 0.20f)))
-        else Brush.linearGradient(listOf(Color.White.copy(alpha = 0.90f), Color.Black.copy(alpha = 0.20f), Color.White.copy(alpha = 0.70f)))
-    }
+    // Use a real cover swatch with enough color/contrast to edge the artwork subtly.
+    val coverColor = visual.palette?.swatches.orEmpty().map { Color(it) }.maxByOrNull { color ->
+        val chroma = maxOf(color.red, color.green, color.blue) - minOf(color.red, color.green, color.blue)
+        chroma * 0.55f + kotlin.math.abs(color.luminance() - colors.background.luminance()) * 0.45f
+    } ?: colors.onBackground.copy(alpha = 0.24f)
+    val borderColor = lerp(coverColor, colors.onBackground, if (dark) 0.14f else 0.08f).copy(alpha = 0.9f)
+    val shape = RoundedCornerShape(10.dp)
     Column(
         modifier = modifier
-            .clip(shape)
-            .background(cardColor)
-            .border(0.8.dp, border, shape)
+            .clip(RoundedCornerShape(10.dp))
             .clickable(role = Role.Button, onClick = onClick)
-            .semantics { contentDescription = "${song.title}, ${song.artist}" }
-            .padding(3.dp),
+            .semantics { contentDescription = "${song.title}, ${song.artist}" },
     ) {
-        Box(Modifier.fillMaxWidth().aspectRatio(1f).clip(RoundedCornerShape(10.dp))) {
+        Box(Modifier.fillMaxWidth().aspectRatio(1f).clip(shape).border(0.8.dp, borderColor, shape)) {
             ArtworkImage(visual.bitmap, Modifier.fillMaxSize())
             if (playing) PlayingBadge(Modifier.align(Alignment.TopEnd).padding(4.dp))
         }
@@ -511,7 +510,7 @@ internal fun MusicListPage(
                 lineHeight = 36.sp,
                 fontWeight = FontWeight.Bold,
                 letterSpacing = (-0.6).sp,
-                modifier = Modifier.padding(bottom = 18.dp),
+                modifier = Modifier.padding(end = 56.dp, bottom = 18.dp),
             )
         }
         when (destination) {

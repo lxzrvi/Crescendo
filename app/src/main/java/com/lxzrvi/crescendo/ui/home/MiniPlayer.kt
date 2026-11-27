@@ -16,6 +16,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
@@ -59,7 +60,7 @@ import dev.chrisbanes.haze.blur.HazeBlurStyle
 import dev.chrisbanes.haze.blur.HazeColorEffect
 import dev.chrisbanes.haze.blur.hazeBlur
 
-/** One live glass surface morphs from a 64dp player into a circular artwork bubble. */
+/** A slimmer live-glass player morphs into a circular artwork bubble while scrolling. */
 @Composable
 internal fun MiniPlayer(
     song: Song,
@@ -80,7 +81,7 @@ internal fun MiniPlayer(
     val dark = colors.background.luminance() < 0.5f
     val density = LocalDensity.current
     val fraction = compact.coerceIn(0f, 1f)
-    val radius = 20.dp + 12.dp * fraction
+    val radius = 20.dp + 8.dp * fraction
     val shape = remember(radius) { PrismalRoundedRectangle(radius) }
     val solidColor = navigationSolidColor(dark)
     val solidDraw: DrawScope.() -> Unit = remember(solidColor) { { drawRect(solidColor) } }
@@ -123,7 +124,7 @@ internal fun MiniPlayer(
     val trackProgress = progress.coerceIn(0f, 1f)
 
     Box(
-        modifier = modifier.fillMaxWidth().height(64.dp).then(glass)
+        modifier = modifier.fillMaxWidth().height(56.dp).then(glass)
             .border(0.8.dp, borderBrush, shape)
             .drawWithContent {
                 drawContent()
@@ -145,11 +146,12 @@ internal fun MiniPlayer(
         if (expandedAlpha > 0.01f) {
             Row(
                 modifier = Modifier.fillMaxSize().graphicsLayer { alpha = expandedAlpha }
-                    .padding(start = 5.dp, end = 3.dp, top = 5.dp, bottom = 5.dp),
+                    .padding(start = 4.dp, end = 3.dp, top = 4.dp, bottom = 4.dp),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
-                SongArtwork(song, artwork, Modifier.size(50.dp).clip(CircleShape), 50.dp)
-                Spacer(Modifier.width(6.dp))
+                // Inner rounding follows the animated outer radius minus the 4dp inset.
+                SongArtwork(song, artwork, Modifier.size(48.dp).clip(RoundedCornerShape(radius - 4.dp)), 48.dp)
+                Spacer(Modifier.width(5.dp))
                 Column(Modifier.weight(1f)) {
                     Text(song.title, color = colors.onBackground, fontSize = 14.sp, lineHeight = 17.sp,
                         fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
@@ -172,12 +174,12 @@ internal fun MiniPlayer(
         val bubbleAlpha = ((fraction - 0.35f) / 0.65f).coerceIn(0f, 1f)
         if (bubbleAlpha > 0.01f) {
             Box(
-                modifier = Modifier.size(56.dp).graphicsLayer { alpha = bubbleAlpha }
+                modifier = Modifier.size(52.dp).graphicsLayer { alpha = bubbleAlpha }
                     .clip(CircleShape).clickable(role = Role.Button, onClick = onToggle)
                     .semantics { contentDescription = "${song.title}. ${if (playing) "Pause" else "Play"}" },
                 contentAlignment = Alignment.Center,
             ) {
-                SongArtwork(song, artwork, Modifier.size(45.dp).clip(CircleShape), 45.dp)
+                SongArtwork(song, artwork, Modifier.size(42.dp).clip(CircleShape), 42.dp)
                 Canvas(Modifier.fillMaxSize()) {
                     val stroke = 2.dp.toPx()
                     val inset = stroke / 2f + 1.dp.toPx()

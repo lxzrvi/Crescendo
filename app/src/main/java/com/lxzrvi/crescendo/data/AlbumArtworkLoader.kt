@@ -65,7 +65,7 @@ internal class AlbumArtworkLoader(context: Context) {
                 else bitmap
                 software?.let { source ->
                     val swatches = Palette.from(source).clearFilters().maximumColorCount(16).generate()
-                        .swatches.sortedByDescending { it.population }.map { it.rgb }.distinct().take(4)
+                        .swatches.sortedByDescending { it.population }.map { it.rgb }.distinct().take(5)
                     if (swatches.isEmpty()) null else ArtworkPalette(swatches)
                 }
             } catch (_: Exception) {

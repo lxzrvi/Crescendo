@@ -27,7 +27,6 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -35,7 +34,6 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Outline
@@ -56,6 +54,7 @@ import androidx.compose.ui.unit.Density
 import androidx.compose.ui.unit.LayoutDirection
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.lxzrvi.crescendo.R
 import com.lxzrvi.crescendo.data.AlbumArtworkLoader
 import com.lxzrvi.crescendo.data.Song
 import com.styropyr0.prismal.PrismalBackdrop
@@ -109,13 +108,9 @@ internal fun FloatingNavigation(
     val activeTab = if (searching) previousTab else selected
     val activeIndex = navTabs.indexOf(activeTab).coerceAtLeast(0)
     val density = LocalDensity.current
-    var searchFocused by remember { mutableStateOf(false) }
     var navPressProgress by remember { mutableStateOf(0f) }
     val searchInteraction = remember { MutableInteractionSource() }
     val searchPressed by searchInteraction.collectIsPressedAsState()
-    LaunchedEffect(searching) {
-        if (!searching) searchFocused = false
-    }
 
     // When the preference is off, even Prismal's nested droplet samples an opaque
     // color instead of the page. The old preference therefore remains meaningful.
@@ -142,7 +137,8 @@ internal fun FloatingNavigation(
         label = "navigationSearchMorph",
     )
     val compact by animateFloatAsState(
-        targetValue = if (miniSong != null && (miniCollapsed || searching)) 1f else 0f,
+        // The keyboard needs a compact bubble; otherwise collapse only during active scroll.
+        targetValue = if (miniSong != null && (miniCollapsed || (searching && imeVisible))) 1f else 0f,
         animationSpec = tween(440, easing = FastOutSlowInEasing),
         label = "miniPlayerDock",
     )
@@ -158,13 +154,14 @@ internal fun FloatingNavigation(
     BoxWithConstraints(modifier = Modifier.fillMaxSize()) {
         val edge = ContentSidePadding
         val gap = 10.dp
-        val barHeight = 64.dp // Prismal's actual bottom-tabs capsule height.
+        val barHeight = 64.dp // Prismal's bottom-tabs capsule height.
+        val miniSize = 56.dp
         val availableWidth = (maxWidth - edge * 2).coerceAtLeast(barHeight * 2 + gap)
-        val miniSpace = if (miniSong != null) (barHeight + gap) * compact else 0.dp
+        val miniSpace = if (miniSong != null) (miniSize + gap) * compact else 0.dp
         val wideWidth = (availableWidth - barHeight - gap - miniSpace).coerceAtLeast(barHeight)
         val navWidth = wideWidth * (1f - morph) + barHeight * morph
         val searchWidth = (availableWidth - navWidth - gap - miniSpace).coerceAtLeast(barHeight)
-        val chromeImeModifier = if (searching && searchFocused && imeVisible) Modifier.imePadding() else Modifier
+        val searchImeModifier = if (searching && imeVisible) Modifier.imePadding() else Modifier
         val indicatorAlpha = (1f - morph * 1.55f).coerceIn(0f, 1f)
         val tabsAlpha = (1f - morph * 1.35f).coerceIn(0f, 1f)
         val returnAlpha = (morph * 1.35f - 0.25f).coerceIn(0f, 1f)
@@ -172,12 +169,11 @@ internal fun FloatingNavigation(
 
         // A real sampled-glass bridge sits beneath the two capsules. Its concave
         // neck grows and shrinks like liquid; it has no touch target of its own.
-        if (connection > 0.005f) {
+        if (connection > 0.005f && !(searching && imeVisible)) {
             val overlap = 16.dp
             Box(
                 modifier = Modifier
                     .align(Alignment.BottomStart)
-                    .then(chromeImeModifier)
                     .navigationBarsPadding()
                     .padding(start = edge + navWidth - overlap, bottom = 14.dp)
                     // Span both gaps when the circular player is docked between the pills.
@@ -201,7 +197,6 @@ internal fun FloatingNavigation(
             onPressProgress = { navPressProgress = it },
             modifier = Modifier
                 .align(Alignment.BottomStart)
-                .then(chromeImeModifier)
                 .navigationBarsPadding()
                 .padding(start = edge, bottom = 14.dp)
                 .width(navWidth)
@@ -212,7 +207,6 @@ internal fun FloatingNavigation(
             Box(
                 modifier = Modifier
                     .align(Alignment.BottomStart)
-                    .then(chromeImeModifier)
                     .navigationBarsPadding()
                     .padding(start = edge, bottom = 14.dp)
                     .width(navWidth)
@@ -220,11 +214,11 @@ internal fun FloatingNavigation(
                     .graphicsLayer { alpha = returnAlpha }
                     .clip(PrismalCapsule())
                     .clickable(enabled = searching, role = Role.Button, onClick = onReturnToTab)
-                    .semantics { contentDescription = "Return to Home" },
+                    .semantics { contentDescription = "Return to ${previousTab.label}" },
                 contentAlignment = Alignment.Center,
             ) {
                 Icon(
-                    painter = painterResource(Destination.Home.icon),
+                    painter = painterResource(previousTab.icon),
                     contentDescription = null,
                     tint = foreground,
                     modifier = Modifier.size(27.dp),
@@ -233,9 +227,10 @@ internal fun FloatingNavigation(
         }
 
         if (miniSong != null) {
-            val miniWidth = availableWidth * (1f - compact) + barHeight * compact
+            val miniWidth = availableWidth * (1f - compact) + miniSize * compact
             val miniStart = edge + (navWidth + gap) * compact
-            val miniBottom = 88.dp * (1f - compact) + 14.dp * compact
+            // The smaller bubble stays vertically centered alongside the 64dp navigation.
+            val miniBottom = 88.dp * (1f - compact) + 18.dp * compact
             MiniPlayer(
                 song = miniSong,
                 artwork = artwork,
@@ -250,13 +245,13 @@ internal fun FloatingNavigation(
                 pageInput = pageInput,
                 liveBlur = liveBlur,
                 modifier = Modifier.align(Alignment.BottomStart)
-                    .then(chromeImeModifier).navigationBarsPadding()
+                    .then(searchImeModifier).navigationBarsPadding()
                     .padding(start = miniStart, bottom = miniBottom)
                     .width(miniWidth),
             )
         }
 
-        // Home, player bubble and Search move together above the keyboard.
+        // Only the player bubble and Search follow the keyboard; the last-tab circle stays put.
         val searchSurface = if (liveBlur && !PrismalGlass.supportsBackdropBlur) {
             Modifier
                 .clip(PrismalCapsule())
@@ -273,7 +268,7 @@ internal fun FloatingNavigation(
         Box(
             modifier = Modifier
                 .align(Alignment.BottomEnd)
-                .then(chromeImeModifier)
+                .then(searchImeModifier)
                 .navigationBarsPadding()
                 .padding(end = edge, bottom = 14.dp)
                 .width(searchWidth)
@@ -311,7 +306,6 @@ internal fun FloatingNavigation(
                     query = query,
                     onQueryChange = onQueryChange,
                     onSearchDone = onSearchDone,
-                    onFocusChanged = { searchFocused = it },
                     enabled = searching,
                     foreground = foreground,
                     modifier = Modifier.fillMaxSize().graphicsLayer { alpha = fieldAlpha },
@@ -423,7 +417,6 @@ private fun SearchInput(
     query: String,
     onQueryChange: (String) -> Unit,
     onSearchDone: () -> Unit,
-    onFocusChanged: (Boolean) -> Unit,
     enabled: Boolean,
     foreground: Color,
     modifier: Modifier = Modifier,
@@ -451,7 +444,6 @@ private fun SearchInput(
             keyboardActions = KeyboardActions(onSearch = { onSearchDone() }),
             modifier = Modifier
                 .weight(1f)
-                .onFocusChanged { onFocusChanged(it.isFocused) }
                 .semantics { contentDescription = "Search songs, artists, or albums" },
             decorationBox = { innerTextField ->
                 Box(contentAlignment = Alignment.CenterStart) {
@@ -476,7 +468,8 @@ private fun SearchInput(
                     .semantics { contentDescription = "Clear search" },
                 contentAlignment = Alignment.Center,
             ) {
-                Text("×", color = foreground.copy(alpha = 0.75f), fontSize = 23.sp)
+                Icon(painterResource(R.drawable.ic_close), contentDescription = null,
+                    tint = foreground.copy(alpha = 0.78f), modifier = Modifier.size(19.dp))
             }
         }
     }
