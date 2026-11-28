@@ -99,7 +99,7 @@ jobs:
           retention-days: 30
 
   lint:
-    name: Check release lint in parallel
+    name: Check release lint and unit tests in parallel
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
@@ -131,6 +131,6 @@ jobs:
         with:
           cache-read-only: true
 
-      # Keep fatal release checks, but don't make the signed APK wait for lint.
-      - name: Analyze fatal release lint
-        run: ./gradlew lintVitalRelease --no-daemon --parallel --build-cache
+      # Lint and focused JVM tests run beside the signed APK, not on the critical assembly path.
+      - name: Analyze fatal release lint and run unit tests
+        run: ./gradlew lintVitalRelease testReleaseUnitTest --no-daemon --parallel --build-cache

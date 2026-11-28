@@ -14,6 +14,7 @@ import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.navigationBarsPadding
@@ -35,6 +36,8 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.geometry.Size
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Outline
 import androidx.compose.ui.graphics.Path
@@ -45,6 +48,7 @@ import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
@@ -109,6 +113,8 @@ internal fun FloatingNavigation(
     val activeTab = if (searching) previousTab else selected
     val activeIndex = navTabs.indexOf(activeTab).coerceAtLeast(0)
     val density = LocalDensity.current
+    val keyboard = LocalSoftwareKeyboardController.current
+    val searchFocusRequester = remember { FocusRequester() }
     var navPressProgress by remember { mutableStateOf(0f) }
     val searchInteraction = remember { MutableInteractionSource() }
     val searchPressed by searchInteraction.collectIsPressedAsState()
@@ -138,8 +144,8 @@ internal fun FloatingNavigation(
         label = "navigationSearchMorph",
     )
     val compact by animateFloatAsState(
-        // Only Home's accumulated scroll docks the disc; every other tab stays expanded.
-        targetValue = if (miniSong != null && miniCollapsed) 1f else 0f,
+        // Search docks the player alongside the keyboard; Home still docks on scroll.
+        targetValue = if (miniSong != null && (miniCollapsed || (searching && imeVisible))) 1f else 0f,
         animationSpec = tween(440, easing = FastOutSlowInEasing),
         label = "miniPlayerDock",
     )
@@ -154,15 +160,20 @@ internal fun FloatingNavigation(
 
     BoxWithConstraints(modifier = Modifier.fillMaxSize()) {
         val edge = ContentSidePadding
-        val gap = 10.dp
-        val barHeight = 64.dp // Prismal's bottom-tabs capsule height.
+        val gap = 8.dp
+        // Constrain the real upstream 64dp Prismal capsule slightly, rather than replacing it.
+        val barHeight = 60.dp
         val miniSize = 56.dp
         val availableWidth = (maxWidth - edge * 2).coerceAtLeast(barHeight * 2 + gap)
         val miniSpace = if (miniSong != null) (miniSize + gap) * compact else 0.dp
         val wideWidth = (availableWidth - barHeight - gap - miniSpace).coerceAtLeast(barHeight)
         val navWidth = wideWidth * (1f - morph) + barHeight * morph
-        val searchWidth = (availableWidth - navWidth - gap - miniSpace).coerceAtLeast(barHeight)
-        val searchImeModifier = if (searching && imeVisible) Modifier.imePadding() else Modifier
+        val imeSearch = searching && imeVisible
+        // The return-to-tab capsule remains below the keyboard. Only reserve the player's
+        // circle to the left of the floating Search capsule above the keyboard.
+        val searchWidth = (availableWidth - (if (imeSearch) 0.dp else navWidth + gap) - miniSpace)
+            .coerceAtLeast(barHeight)
+        val searchImeModifier = if (imeSearch) Modifier.imePadding() else Modifier
         val tabsAlpha = (1f - morph).coerceIn(0f, 1f)
         val returnAlpha = morph.coerceIn(0f, 1f)
         val controlsEnabled = !searching && morph < 0.25f
@@ -210,6 +221,7 @@ internal fun FloatingNavigation(
                     .width(navWidth)
                     .height(barHeight)
                     .graphicsLayer { alpha = returnAlpha }
+                    .blockTouchThrough()
                     .prismalNavigationSurface(backdrop, density, isLightTheme, connection)
                     .clip(PrismalCapsule())
                     .clickable(enabled = searching, role = Role.Button, onClick = onReturnToTab)
@@ -220,16 +232,17 @@ internal fun FloatingNavigation(
                     painter = painterResource(previousTab.icon),
                     contentDescription = null,
                     tint = foreground,
-                    modifier = Modifier.size(27.dp),
+                    modifier = Modifier.size(25.dp),
                 )
             }
         }
 
         if (miniSong != null) {
             val miniWidth = availableWidth * (1f - compact) + miniSize * compact
-            val miniStart = edge + (navWidth + gap) * compact
-            // The smaller bubble stays vertically centered alongside the 64dp navigation.
-            val miniBottom = 88.dp * (1f - compact) + 18.dp * compact
+            val miniStart = if (imeSearch) edge else edge + (navWidth + gap) * compact
+            // The bubble stays centered beside the compact navigation or keyboard Search bar.
+            val miniBottom = (barHeight + 24.dp) * (1f - compact) +
+                (14.dp + (barHeight - miniSize) / 2) * compact
             MiniPlayer(
                 song = miniSong,
                 artwork = artwork,
@@ -273,6 +286,7 @@ internal fun FloatingNavigation(
                 .padding(end = edge, bottom = 14.dp)
                 .width(searchWidth)
                 .height(barHeight)
+                .blockTouchThrough()
                 .then(searchSurface),
             contentAlignment = Alignment.Center,
         ) {
@@ -296,7 +310,7 @@ internal fun FloatingNavigation(
                         painter = painterResource(Destination.Search.icon),
                         contentDescription = "Open search",
                         tint = foreground,
-                        modifier = Modifier.size(27.dp),
+                        modifier = Modifier.size(25.dp),
                     )
                 }
             }
@@ -306,6 +320,9 @@ internal fun FloatingNavigation(
                     query = query,
                     onQueryChange = onQueryChange,
                     onSearchDone = onSearchDone,
+                    onCloseSearch = onReturnToTab,
+                    onFocusSearch = { searchFocusRequester.requestFocus(); keyboard?.show() },
+                    focusRequester = searchFocusRequester,
                     enabled = searching,
                     foreground = foreground,
                     modifier = Modifier.fillMaxSize().graphicsLayer { alpha = fieldAlpha },
@@ -417,29 +434,28 @@ private fun SearchInput(
     query: String,
     onQueryChange: (String) -> Unit,
     onSearchDone: () -> Unit,
+    onCloseSearch: () -> Unit,
+    onFocusSearch: () -> Unit,
+    focusRequester: FocusRequester,
     enabled: Boolean,
     foreground: Color,
     modifier: Modifier = Modifier,
 ) {
     val colors = MaterialTheme.colorScheme
     Row(
-        modifier = modifier.padding(start = 18.dp, end = 12.dp),
+        modifier = modifier.padding(start = 10.dp, end = 8.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        Box(Modifier.size(36.dp), contentAlignment = Alignment.Center) {
-            if (query.isNotEmpty()) {
-                Box(Modifier.size(36.dp).clip(PrismalCapsule())
-                    .clickable(enabled = enabled, role = Role.Button) { onQueryChange("") }
-                    .semantics { contentDescription = "Clear search" }, contentAlignment = Alignment.Center) {
-                    Icon(painterResource(R.drawable.ic_close), contentDescription = null,
-                        tint = foreground.copy(alpha = 0.78f), modifier = Modifier.size(19.dp))
-                }
-            } else {
-                Icon(painterResource(Destination.Search.icon), contentDescription = null,
-                    tint = foreground, modifier = Modifier.size(21.dp))
-            }
+        Box(
+            Modifier.size(40.dp).clip(PrismalCapsule())
+                .clickable(enabled = enabled, role = Role.Button, onClick = onFocusSearch)
+                .semantics { contentDescription = "Focus search" },
+            contentAlignment = Alignment.Center,
+        ) {
+            Icon(painterResource(Destination.Search.icon), contentDescription = null,
+                tint = foreground, modifier = Modifier.size(21.dp))
         }
-        Spacer(Modifier.width(10.dp))
+        Spacer(Modifier.width(4.dp))
         BasicTextField(
             value = query,
             onValueChange = onQueryChange,
@@ -449,11 +465,10 @@ private fun SearchInput(
             cursorBrush = SolidColor(colors.primary),
             keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
             keyboardActions = KeyboardActions(onSearch = { onSearchDone() }),
-            modifier = Modifier
-                .weight(1f)
+            modifier = Modifier.weight(1f).fillMaxHeight().focusRequester(focusRequester)
                 .semantics { contentDescription = "Search songs, artists, or albums" },
             decorationBox = { innerTextField ->
-                Box(contentAlignment = Alignment.CenterStart) {
+                Box(Modifier.fillMaxSize(), contentAlignment = Alignment.CenterStart) {
                     if (query.isEmpty()) {
                         Text(
                             text = "Search your music",
@@ -466,6 +481,17 @@ private fun SearchInput(
                 }
             },
         )
-
+        Spacer(Modifier.width(4.dp))
+        Box(
+            Modifier.size(40.dp).clip(PrismalCapsule())
+                .clickable(enabled = enabled, role = Role.Button) {
+                    if (query.isNotEmpty()) onQueryChange("") else onCloseSearch()
+                }
+                .semantics { contentDescription = if (query.isNotEmpty()) "Clear search" else "Close search" },
+            contentAlignment = Alignment.Center,
+        ) {
+            Icon(painterResource(R.drawable.ic_close), contentDescription = null,
+                tint = foreground.copy(alpha = 0.78f), modifier = Modifier.size(19.dp))
+        }
     }
 }

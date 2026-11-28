@@ -16,10 +16,14 @@ import kotlinx.coroutines.sync.Semaphore
 import kotlinx.coroutines.sync.withPermit
 import kotlinx.coroutines.withContext
 
-/** The most populous real swatches, in descending order of cover-pixel population. */
-internal data class ArtworkPalette(val swatches: List<Int>) {
-    val dominant: Int? get() = swatches.firstOrNull()
-}
+/** Colors from the visible square cover's outer bands, including each side's average. */
+internal data class ArtworkEdgePalette(
+    val swatches: List<Int>,
+    val top: Int,
+    val right: Int,
+    val bottom: Int,
+    val left: Int,
+)
 
 /** Size-limited, off-main-thread local artwork loading with an embedded-art fallback. */
 internal class AlbumArtworkLoader(context: Context) {
@@ -28,7 +32,7 @@ internal class AlbumArtworkLoader(context: Context) {
     private val pendingLimit = Semaphore(4)
     private val paletteLimit = Semaphore(2)
     private val missing = ConcurrentHashMap.newKeySet<String>()
-    private val colors = LruCache<String, ArtworkPalette>(512)
+    private val edgeColors = LruCache<String, ArtworkEdgePalette>(512)
     private val cache = object : LruCache<String, Bitmap>(24 * 1024) {
         override fun sizeOf(key: String, value: Bitmap): Int = (value.byteCount / 1024).coerceAtLeast(1)
     }
@@ -52,33 +56,61 @@ internal class AlbumArtworkLoader(context: Context) {
         }
     }
 
-    /** Extract actual populous cover colors off the UI thread and reuse them across sections. */
-    suspend fun palette(song: Song, bitmap: Bitmap): ArtworkPalette? = withContext(Dispatchers.Default) {
+    /** Sample the actual edges of the square crop shown by the hero, off the UI thread. */
+    suspend fun edgePalette(song: Song, bitmap: Bitmap): ArtworkEdgePalette? = withContext(Dispatchers.Default) {
         val key = "${song.id}:${song.dateModified}"
-        colors.get(key)?.let { return@withContext it }
+        edgeColors.get(key)?.let { return@withContext it }
         paletteLimit.withPermit {
-            colors.get(key)?.let { return@withPermit it }
+            edgeColors.get(key)?.let { return@withPermit it }
             var software: Bitmap? = null
+            var sample: Bitmap? = null
             val result = try {
-                // Palette reads pixels and cannot directly inspect a hardware bitmap.
-                software = if (bitmap.config == Bitmap.Config.HARDWARE) bitmap.copy(Bitmap.Config.ARGB_8888, false)
-                else bitmap
-                software?.let { source ->
-                    val swatches = Palette.from(source).clearFilters().maximumColorCount(16).generate()
-                        .swatches.sortedByDescending { it.population }.map { it.rgb }.distinct().take(5)
-                    if (swatches.isEmpty()) null else ArtworkPalette(swatches)
+                software = if (bitmap.config == Bitmap.Config.HARDWARE) bitmap.copy(Bitmap.Config.ARGB_8888, false) else bitmap
+                val source = software ?: return@withPermit null
+                // ContentScale.Crop displays the center square, not necessarily the full bitmap.
+                val edge = minOf(source.width, source.height)
+                val left = (source.width - edge) / 2
+                val top = (source.height - edge) / 2
+                val pixels = IntArray(64 * 64)
+                val red = LongArray(4)
+                val green = LongArray(4)
+                val blue = LongArray(4)
+                val alpha = LongArray(4)
+                // Four 64 x 16 strips from the outer 12% of the displayed cover.
+                for (side in 0..3) for (depth in 0..15) for (along in 0..63) {
+                    val p = along * (edge - 1) / 63
+                    val d = (depth * (edge - 1) * 0.12f / 15f).toInt()
+                    val x = left + when (side) { 0 -> p; 1 -> edge - 1 - d; 2 -> p; else -> d }
+                    val y = top + when (side) { 0 -> d; 1 -> p; 2 -> edge - 1 - d; else -> p }
+                    val pixel = source.getPixel(x, y)
+                    pixels[(side * 16 + depth) * 64 + along] = pixel
+                    val weight = android.graphics.Color.alpha(pixel).toLong()
+                    alpha[side] += weight
+                    red[side] += android.graphics.Color.red(pixel) * weight
+                    green[side] += android.graphics.Color.green(pixel) * weight
+                    blue[side] += android.graphics.Color.blue(pixel) * weight
+                }
+                val bands = Bitmap.createBitmap(pixels, 64, 64, Bitmap.Config.ARGB_8888)
+                sample = bands
+                val swatches = Palette.from(bands).clearFilters().maximumColorCount(16).generate()
+                    .swatches.sortedByDescending { it.population }.map { it.rgb }.distinct().take(5)
+                if (swatches.isEmpty()) null else {
+                    fun average(side: Int): Int = if (alpha[side] == 0L) swatches.first() else android.graphics.Color.rgb(
+                        (red[side] / alpha[side]).toInt(), (green[side] / alpha[side]).toInt(),
+                        (blue[side] / alpha[side]).toInt(),
+                    )
+                    ArtworkEdgePalette(swatches, average(0), average(1), average(2), average(3))
                 }
             } catch (_: Exception) {
                 null
             } finally {
+                sample?.recycle()
                 if (software != null && software !== bitmap) software?.recycle()
             }
-            if (result != null) colors.put(key, result)
+            if (result != null) edgeColors.put(key, result)
             result
         }
     }
-
-    suspend fun dominantColor(song: Song, bitmap: Bitmap): Int? = palette(song, bitmap)?.dominant
 
     private fun thumbnail(song: Song, size: Int): Bitmap? {
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.Q) return null

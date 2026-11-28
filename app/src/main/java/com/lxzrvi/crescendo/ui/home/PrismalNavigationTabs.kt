@@ -72,7 +72,7 @@ internal fun PrismalNavigationTabs(
     val accent = MaterialTheme.colorScheme.primary
 
     BoxWithConstraints(
-        modifier = modifier.graphicsLayer { this.alpha = alpha.coerceIn(0f, 1f) }
+        modifier = modifier.blockTouchThrough().graphicsLayer { this.alpha = alpha.coerceIn(0f, 1f) }
             .pointerInput(controlsEnabled, ltr, tabs.size) {
                 // Observe without consuming: Prismal owns all taps and drag gestures.
                 if (controlsEnabled) awaitEachGesture {
@@ -117,7 +117,7 @@ internal fun PrismalNavigationTabs(
                         },
                     ) {
                         Icon(painterResource(destination.icon), contentDescription = null,
-                            modifier = Modifier.size(27.dp), tint = foreground)
+                            modifier = Modifier.size(25.dp), tint = foreground)
                         if (showLabels) Text(
                             text = destination.label,
                             style = MaterialTheme.typography.labelMedium.copy(

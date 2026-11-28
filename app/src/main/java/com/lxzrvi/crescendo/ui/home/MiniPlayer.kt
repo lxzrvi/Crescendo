@@ -140,7 +140,7 @@ internal fun MiniPlayer(
     }
 
     Box(
-        modifier = modifier.fillMaxWidth().height(56.dp).then(glass)
+        modifier = modifier.fillMaxWidth().height(56.dp).blockTouchThrough().then(glass)
             .border(0.8.dp, borderBrush, shape)
             .drawWithContent {
                 drawContent()

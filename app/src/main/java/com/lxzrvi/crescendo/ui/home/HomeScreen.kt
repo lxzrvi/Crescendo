@@ -76,6 +76,7 @@ import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.withTimeoutOrNull
 import kotlin.math.roundToInt
+import kotlin.random.Random
 
 internal const val PAGE_SOURCE_KEY = "page"
 
@@ -134,6 +135,11 @@ private fun HomeScreenContent(
     var query by rememberSaveable { mutableStateOf("") }
     var libraryCategory by rememberSaveable { mutableStateOf<CollectionKind?>(null) }
     var showProfile by rememberSaveable { mutableStateOf(false) }
+    val profilePrefs = remember(context) { context.getSharedPreferences("profile", android.content.Context.MODE_PRIVATE) }
+    var profileName by remember(profilePrefs) {
+        mutableStateOf(profilePrefs.getString("name", "Alex")?.trim().orEmpty().ifBlank { "Alex" })
+    }
+    val recommendationPrefs = remember(context) { context.getSharedPreferences("home_recommendations", android.content.Context.MODE_PRIVATE) }
     val library = rememberMusicLibrary()
     val artwork = remember(context) { AlbumArtworkLoader(context) }
     val history = remember(context) { ListeningHistory(context) }
@@ -158,6 +164,24 @@ private fun HomeScreenContent(
     var startedAt by remember { mutableLongStateOf(SystemClock.elapsedRealtime()) }
     var startupCycle by remember { mutableIntStateOf(0) }
     var startupReady by remember { mutableStateOf(false) }
+    // New recommendations and greeting on every fresh launch or foreground reopen.
+    val sessionSeed = remember(startupCycle) { Random.nextLong() }
+    val previousFirst = remember(sessionSeed) {
+        recommendationPrefs.getString("featured_first", null) to recommendationPrefs.getString("quick_first", null)
+    }
+    val sessionSongs = (library as? MusicLibraryState.Ready)?.songs.orEmpty()
+    val featuredSongs = remember(sessionSongs, sessionSeed, previousFirst.first) {
+        shuffleForSession(sessionSongs, sessionSeed, previousFirst.first) { it.id }.take(5)
+    }
+    val quickSongs = remember(sessionSongs, sessionSeed, previousFirst.second) {
+        shuffleForSession(sessionSongs, sessionSeed xor 0x5DEECE66DL, previousFirst.second) { it.id }
+    }
+    LaunchedEffect(sessionSeed, featuredSongs.firstOrNull()?.id, quickSongs.firstOrNull()?.id) {
+        if (featuredSongs.isNotEmpty() && quickSongs.isNotEmpty()) {
+            recommendationPrefs.edit().putString("featured_first", featuredSongs.first().id)
+                .putString("quick_first", quickSongs.first().id).apply()
+        }
+    }
     // Avoid leaving the branded screen up forever if a device's media provider hangs.
     LaunchedEffect(startupCycle) {
         delay(5_000)
@@ -166,15 +190,11 @@ private fun HomeScreenContent(
     LaunchedEffect(library, startupCycle) {
         if (!startupReady && library !is MusicLibraryState.Loading) {
             if (library is MusicLibraryState.Ready) {
-                val firstCovers = library.songs.sortedWith(
-                    compareByDescending<Song> { playCounts[it.historyKey] ?: 0 }
-                        .thenByDescending { it.dateAdded }
-                        .thenBy { it.title.lowercase() },
-                ).take(3)
+                val firstCovers = featuredSongs.take(3)
                 withTimeoutOrNull(2_500) {
                     coroutineScope {
                         firstCovers.map { song -> async {
-                            artwork.load(song, 512)?.let { artwork.palette(song, it) }
+                            artwork.load(song, 512)?.let { artwork.edgePalette(song, it) }
                         } }.awaitAll()
                     }
                 }
@@ -218,7 +238,6 @@ private fun HomeScreenContent(
     val initialFade = remember { Animatable(0f) }
     val homeState = rememberLazyListState()
     val quickState = rememberLazyListState()
-    val moodsState = rememberLazyListState()
     val playlistState = rememberLazyListState()
     val libraryState = rememberLazyListState()
     val libraryDetailState = rememberLazyListState()
@@ -233,6 +252,7 @@ private fun HomeScreenContent(
     }
     LaunchedEffect(Unit) { initialFade.animateTo(1f, tween(500, easing = FastOutSlowInEasing)) }
     LaunchedEffect(query) { searchState.scrollToItem(0) }
+    LaunchedEffect(sessionSeed) { quickState.scrollToItem(0) }
     // Match the reference's persistent dock: enough downward Home scroll collapses;
     // upward movement, reaching the top, tapping the disc, or leaving Home expands it.
     val density = LocalDensity.current
@@ -287,7 +307,11 @@ private fun HomeScreenContent(
 
     val bottomInset = WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding()
     val imeInset = if (destination == Destination.Search) WindowInsets.ime.asPaddingValues().calculateBottomPadding() else 0.dp
-    val pageBottomPadding = maxOf(bottomInset, imeInset) + if (currentSong != null) 184.dp else 108.dp
+    val pageBottomPadding = maxOf(bottomInset, imeInset) + when {
+        destination == Destination.Search && imeVisible -> 92.dp
+        currentSong != null -> 184.dp
+        else -> 108.dp
+    }
 
     Box(modifier = modifier.fillMaxSize().background(colors.background)) {
         Box(Modifier.fillMaxSize().blur(profileBlur)
@@ -321,13 +345,14 @@ private fun HomeScreenContent(
                     val fade = Modifier.graphicsLayer { alpha = initialFade.value }
                     when (page) {
                         Destination.Home -> HomeMusicPage(
-                            library = library, playCounts = playCounts, artwork = artwork,
+                            library = library, featuredSongs = featuredSongs, quickSongs = quickSongs,
+                            profileName = profileName, greetingSeed = sessionSeed, artwork = artwork,
                             currentSong = currentSong, isPlaying = playback.isPlaying,
                             shuffleEnabled = playback.shuffleEnabled, animateHero = appearance.animateHero, liveBlur = appearance.liveBlur,
                             onSongClick = playback::select,
                             onShuffle = { playback.toggleShuffle((library as? MusicLibraryState.Ready)?.songs.orEmpty()) },
                             onVerticalScroll = ::onHomeScroll,
-                            listState = homeState, quickState = quickState, moodsState = moodsState,
+                            listState = homeState, quickState = quickState,
                             bottomPadding = pageBottomPadding, modifier = fade,
                         )
                         Destination.Library -> LibraryCollectionsPage(
@@ -364,10 +389,17 @@ private fun HomeScreenContent(
                 miniLoading = playback.isLoading, miniError = playback.errorMessage, miniProgress = progress,
                 miniCollapsed = miniCollapsed, onMiniToggle = playback::toggle,
                 onMiniNext = { playback.next((library as? MusicLibraryState.Ready)?.songs.orEmpty()) },
-                onMiniExpand = { miniDocked = false; downDistance = 0f; upDistance = 0f },
+                onMiniExpand = {
+                    if (destination == Destination.Search && imeVisible) { keyboard?.hide(); focusManager.clearFocus(force = true) }
+                    miniDocked = false; downDistance = 0f; upDistance = 0f
+                },
             )
         }
         ProfileMenu(
+            profileName = profileName, onNameChange = { name ->
+                profileName = name.trim().take(28).ifBlank { "Alex" }
+                profilePrefs.edit().putString("name", profileName).apply()
+            },
             expanded = showProfile, onExpandedChange = {
                 if (it && imeVisible) { keyboard?.hide(); focusManager.clearFocus(force = true) }
                 showProfile = it

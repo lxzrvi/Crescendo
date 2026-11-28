@@ -40,7 +40,6 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.State
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
@@ -52,7 +51,6 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.layout.ContentScale
@@ -74,20 +72,21 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.lxzrvi.crescendo.R
 import com.lxzrvi.crescendo.data.AlbumArtworkLoader
-import com.lxzrvi.crescendo.data.ArtworkPalette
 import com.lxzrvi.crescendo.data.MusicLibraryState
 import com.lxzrvi.crescendo.data.Song
 import com.styropyr0.prismal.PrismalBackdrop
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
-import kotlin.random.Random
 
 internal val ContentSidePadding = 20.dp
 
 @Composable
 internal fun HomeMusicPage(
     library: MusicLibraryState,
-    playCounts: Map<String, Int>,
+    featuredSongs: List<Song>,
+    quickSongs: List<Song>,
+    profileName: String,
+    greetingSeed: Long,
     artwork: AlbumArtworkLoader,
     currentSong: Song?,
     isPlaying: Boolean,
@@ -99,7 +98,6 @@ internal fun HomeMusicPage(
     onVerticalScroll: (Float) -> Unit,
     listState: LazyListState,
     quickState: LazyListState,
-    moodsState: LazyListState,
     bottomPadding: Dp,
     modifier: Modifier = Modifier,
 ) {
@@ -115,18 +113,27 @@ internal fun HomeMusicPage(
     }
     var showAll by rememberSaveable { mutableStateOf(false) }
     val songs = (library as? MusicLibraryState.Ready)?.songs.orEmpty()
-    val topSongs = remember(songs, playCounts) {
-        songs.sortedWith(
-            compareByDescending<Song> { playCounts[it.historyKey] ?: 0 }
-                .thenByDescending { it.dateAdded }
-                .thenBy { it.title.lowercase() },
-        ).take(5)
-    }
+    val topSongs = featuredSongs
     val topIds = remember(topSongs) { topSongs.map { it.id } }
     var featuredIndex by remember(topIds) { androidx.compose.runtime.mutableIntStateOf(0) }
     val featured = topSongs.getOrNull(featuredIndex.coerceAtMost((topSongs.size - 1).coerceAtLeast(0)))
-    val quickGroups = remember(songs) {
-        songs.shuffled(Random(songs.size.toLong() + 319L)).chunked(4)
+    val quickGroups = remember(quickSongs) { quickSongs.chunked(4) }
+    val heroPixels = with(LocalDensity.current) { 300.dp.roundToPx() }
+
+    fun nextQuickPicks() {
+        if (quickGroups.size > 1) {
+            val next = (quickState.firstVisibleItemIndex + 1) % quickGroups.size
+            scope.launch { quickState.animateScrollToItem(next) }
+        }
+    }
+    fun toggleAllSongs() { showAll = !showAll }
+
+    // Prepare the next image and its edge colors before the timed transition.
+    LaunchedEffect(topIds, featuredIndex, artwork, heroPixels) {
+        if (topSongs.size > 1) {
+            val next = topSongs[(featuredIndex + 1) % topSongs.size]
+            artwork.load(next, heroPixels)?.let { artwork.edgePalette(next, it) }
+        }
     }
 
     // Restart the slower timer after a manual swipe; never change an off-screen cover.
@@ -155,12 +162,15 @@ internal fun HomeMusicPage(
                 HomeHero(
                     song = featured,
                     artwork = artwork,
-                    playing = isPlaying && featured?.id == currentSong?.id,
+                    currentSong = currentSong,
+                    isPlaying = isPlaying,
+                    profileName = profileName,
+                    greetingSeed = greetingSeed,
                     shuffleEnabled = shuffleEnabled,
                     animate = animateHero,
                     liveBlur = liveBlur,
                     canSwipe = topSongs.size > 1,
-                    onPlay = { featured?.let(onSongClick) },
+                    onPlay = onSongClick,
                     onShuffle = onShuffle,
                     onSwipe = { direction ->
                         if (topSongs.size > 1) featuredIndex =
@@ -171,10 +181,7 @@ internal fun HomeMusicPage(
                             SectionHeading(
                                 "Quick Picks",
                                 moreDescription = "Next quick picks",
-                                onMore = if (quickGroups.size > 1) {{
-                                    val next = (quickState.firstVisibleItemIndex + 1) % quickGroups.size
-                                    scope.launch { quickState.animateScrollToItem(next) }
-                                }} else null,
+                                onMore = if (quickGroups.size > 1) ::nextQuickPicks else null,
                             )
                             LazyRow(
                                 state = quickState,
@@ -187,7 +194,7 @@ internal fun HomeMusicPage(
                                         group.forEach { song ->
                                             SongListRow(song = song, artwork = artwork,
                                                 playing = isPlaying && currentSong?.id == song.id,
-                                                onClick = { onSongClick(song) })
+                                                showDuration = true, onClick = { onSongClick(song) })
                                         }
                                     }
                                 }
@@ -206,17 +213,11 @@ internal fun HomeMusicPage(
                             LibraryMessage("No music found yet. Add songs to your device and reopen Crescendo.")
                         }
                     } else {
-                        item(key = "moods") {
-                            Column {
-                                SectionHeading("Moods")
-                                HomeMoods(songs = songs, onSongClick = onSongClick, animate = animateHero, listState = moodsState)
-                            }
-                        }
                         item(key = "all-heading") {
                             SectionHeading(
                                 "All Songs",
                                 note = if (songs.size == 1) "1 song" else "${songs.size} songs",
-                                onTitleClick = if (songs.size > 12) {{ showAll = !showAll }} else null,
+                                onTitleClick = if (songs.size > 12) ::toggleAllSongs else null,
                             )
                         }
                         items(shownRows, key = { it.first().id }) { row ->
@@ -355,6 +356,7 @@ internal fun SongListRow(
     playing: Boolean,
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
+    showDuration: Boolean = false,
     showMore: Boolean = false,
     liked: Boolean = false,
     onFavoriteToggle: (() -> Unit)? = null,
@@ -370,7 +372,11 @@ internal fun SongListRow(
                 .fillMaxHeight()
                 .clip(RoundedCornerShape(12.dp))
                 .clickable(role = Role.Button, onClick = onClick)
-                .semantics { contentDescription = "${song.title}, ${song.artist}" },
+                .semantics {
+                    contentDescription = listOfNotNull(song.title, song.artist,
+                        if (showDuration) formatSongDuration(song.durationMs) else null,
+                        if (playing) "Playing" else null).joinToString(", ")
+                },
             verticalAlignment = Alignment.CenterVertically,
         ) {
             Box(Modifier.size(54.dp).clip(RoundedCornerShape(10.dp))) {
@@ -397,12 +403,11 @@ internal fun SongListRow(
                 )
             }
             if (playing) {
-                Icon(
-                    painter = painterResource(R.drawable.ic_onboarding_music),
-                    contentDescription = "Playing",
-                    tint = colors.primary,
-                    modifier = Modifier.padding(start = 6.dp, end = 3.dp).size(17.dp),
-                )
+                PlayingWave(colors.primary, Modifier.padding(start = 6.dp, end = 3.dp).size(17.dp))
+            }
+            if (showDuration) formatSongDuration(song.durationMs)?.let { duration ->
+                Text(duration, color = colors.onBackground.copy(alpha = 0.52f), fontSize = 11.sp,
+                    maxLines = 1, modifier = Modifier.padding(start = 8.dp, end = 3.dp))
             }
         }
         if (onFavoriteToggle != null) {
@@ -430,21 +435,6 @@ internal fun SongListRow(
                 )
             }
         }
-    }
-}
-
-internal data class ArtworkVisual(val bitmap: Bitmap? = null, val palette: ArtworkPalette? = null) {
-    val dominant: Int? get() = palette?.dominant
-}
-
-@Composable
-internal fun rememberArtworkVisual(song: Song, artwork: AlbumArtworkLoader, requestedSize: Dp): State<ArtworkVisual> {
-    val requestedPx = with(LocalDensity.current) { requestedSize.roundToPx() }
-    return produceState(ArtworkVisual(), song.id, song.dateModified, requestedPx, artwork) {
-        value = ArtworkVisual()
-        val bitmap = artwork.load(song, requestedPx)
-        value = ArtworkVisual(bitmap = bitmap)
-        if (bitmap != null) value = ArtworkVisual(bitmap, artwork.palette(song, bitmap))
     }
 }
 
@@ -486,12 +476,7 @@ private fun PlayingBadge(modifier: Modifier = Modifier) {
         modifier = modifier.size(28.dp).clip(CircleShape).background(MaterialTheme.colorScheme.primary),
         contentAlignment = Alignment.Center,
     ) {
-        Icon(
-            painter = painterResource(R.drawable.ic_onboarding_music),
-            contentDescription = "Playing",
-            tint = Color.White,
-            modifier = Modifier.size(14.dp),
-        )
+        PlayingWave(MaterialTheme.colorScheme.onPrimary, Modifier.size(14.dp))
     }
 }
 
