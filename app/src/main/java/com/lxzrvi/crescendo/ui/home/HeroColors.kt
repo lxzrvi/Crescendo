@@ -33,10 +33,12 @@ private fun richHeroTone(color: Int, dark: Boolean): Int {
     val hsl = toHsl(color)
     val saturation = when {
         hsl.saturation < 0.10 -> hsl.saturation
-        dark -> max(hsl.saturation, 0.62).coerceAtMost(0.96)
-        else -> max(hsl.saturation * 0.85, 0.38).coerceAtMost(0.82)
+        dark -> max(hsl.saturation, 0.70).coerceAtMost(0.98)
+        else -> max(hsl.saturation, 0.46).coerceAtMost(0.92)
     }
-    val lightness = if (dark) 0.18 + 0.14 * hsl.lightness else 0.80 + 0.12 * hsl.lightness
+    // Give cover-derived hues a little more presence while the luminance limits
+    // below continue to protect the light/dark foreground contrast.
+    val lightness = if (dark) 0.20 + 0.15 * hsl.lightness else 0.77 + 0.15 * hsl.lightness
     val tone = fromHsl(hsl.hue, saturation, lightness)
     // These limits also protect the unchanged white/black greeting and status icons.
     return if (dark) constrainLuminance(tone, 0xff000000.toInt()) { it <= 0.13 }

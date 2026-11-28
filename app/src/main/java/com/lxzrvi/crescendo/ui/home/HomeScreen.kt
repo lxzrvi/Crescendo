@@ -353,7 +353,7 @@ private fun HomeScreenContent(
                             profileName = profileName, greetingSeed = sessionSeed, artwork = artwork,
                             currentSong = currentSong, isPlaying = playback.isPlaying,
                             shuffleEnabled = playback.shuffleEnabled, animateHero = appearance.animateHero, liveBlur = appearance.liveBlur,
-                            onSongClick = playback::select,
+                            pageInput = pageInput, onSongClick = playback::select,
                             onShuffle = { playback.toggleShuffle((library as? MusicLibraryState.Ready)?.songs.orEmpty()) },
                             onVerticalScroll = ::onHomeScroll,
                             listState = homeState, quickState = quickState,

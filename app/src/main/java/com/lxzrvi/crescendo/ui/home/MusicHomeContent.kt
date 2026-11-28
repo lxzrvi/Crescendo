@@ -5,7 +5,10 @@
 
 package com.lxzrvi.crescendo.ui.home
 
+import android.content.Context
 import android.graphics.Bitmap
+import androidx.compose.animation.core.FastOutSlowInEasing
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -36,6 +39,8 @@ import androidx.compose.foundation.pager.PageSize
 import androidx.compose.foundation.pager.PagerState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.BasicText
+import androidx.compose.foundation.text.TextAutoSize
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
@@ -48,6 +53,7 @@ import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.rememberUpdatedState
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
@@ -61,12 +67,14 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.input.nestedscroll.NestedScrollConnection
 import androidx.compose.ui.input.nestedscroll.NestedScrollSource
 import androidx.compose.ui.input.nestedscroll.nestedScroll
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalLayoutDirection
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
@@ -77,11 +85,16 @@ import com.lxzrvi.crescendo.R
 import com.lxzrvi.crescendo.data.AlbumArtworkLoader
 import com.lxzrvi.crescendo.data.MusicLibraryState
 import com.lxzrvi.crescendo.data.Song
+import com.lxzrvi.crescendo.ui.theme.SfProFamily
 import com.styropyr0.prismal.PrismalBackdrop
+import dev.chrisbanes.haze.HazeInput
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 
 internal val ContentSidePadding = 20.dp
+private val DurationAutoSize = TextAutoSize.StepBased(minFontSize = 5.sp, maxFontSize = 10.sp, stepSize = 0.5.sp)
 
 @Composable
 internal fun HomeMusicPage(
@@ -96,6 +109,7 @@ internal fun HomeMusicPage(
     shuffleEnabled: Boolean,
     animateHero: Boolean,
     liveBlur: Boolean,
+    pageInput: HazeInput.Sources,
     onSongClick: (Song) -> Unit,
     onShuffle: () -> Unit,
     onVerticalScroll: (Float) -> Unit,
@@ -115,7 +129,28 @@ internal fun HomeMusicPage(
         }
     }
     var showAll by rememberSaveable { mutableStateOf(false) }
+    var collapsing by remember { mutableStateOf(false) }
+    val context = LocalContext.current
+    val displayPrefs = remember(context) { context.getSharedPreferences("all_songs_display", Context.MODE_PRIVATE) }
+    var columnCount by remember(displayPrefs) {
+        mutableIntStateOf(displayPrefs.getInt("columns", 4).takeIf { it in 2..5 } ?: 4)
+    }
+    var sortOrder by remember(displayPrefs) {
+        val saved = displayPrefs.getString("sort", null)
+        mutableStateOf(AllSongsSort.entries.firstOrNull { it.name == saved } ?: AllSongsSort.TitleAscending)
+    }
     val songs = (library as? MusicLibraryState.Ready)?.songs.orEmpty()
+    // Sorting can be expensive for large local libraries; never do it during a
+    // frame. On a library reload, immediately discard results from the old list.
+    val sortedState = remember(songs) { mutableStateOf(songs) }
+    LaunchedEffect(songs, sortOrder) {
+        sortedState.value = withContext(Dispatchers.Default) {
+            sortAllSongs(songs, sortOrder) { song ->
+                SortSongKeys(song.id, song.title, song.artist, song.album, song.dateAdded, song.durationMs)
+            }
+        }
+    }
+    val sortedSongs = sortedState.value
     val topSongs = featuredSongs
     val topIds = remember(topSongs) { topSongs.map { it.id } }
     var featuredIndex by remember(topIds) { androidx.compose.runtime.mutableIntStateOf(0) }
@@ -129,7 +164,26 @@ internal fun HomeMusicPage(
             scope.launch { quickState.animateScrollToPage(next) }
         }
     }
-    fun toggleAllSongs() { showAll = !showAll }
+    fun toggleAllSongs() {
+        if (collapsing) return
+        if (!showAll) {
+            showAll = true
+        } else {
+            scope.launch {
+                collapsing = true
+                try {
+                    // When Show Less is far down a long library, return to the
+                    // first rows before removing the remaining lazy items.
+                    if (listState.firstVisibleItemIndex > COLLAPSED_ALL_SONG_ROWS) {
+                        listState.animateScrollToItem(1)
+                    }
+                    showAll = false
+                } finally {
+                    collapsing = false
+                }
+            }
+        }
+    }
 
     // Prepare the next image and its edge colors before the timed transition.
     LaunchedEffect(topIds, featuredIndex, artwork, heroPixels) {
@@ -153,8 +207,10 @@ internal fun HomeMusicPage(
     }
 
     BoxWithConstraints(modifier = modifier.fillMaxSize()) {
-        val allRows = remember(songs) { songs.chunked(4) }
-        val shownRows = if (showAll) allRows else allRows.take(3)
+        val allRows = remember(sortedSongs, columnCount) { allSongsRows(sortedSongs, columnCount) }
+        val shownRows = remember(allRows, showAll) { visibleAllSongsRows(allRows, showAll) }
+        val cardWidth = ((maxWidth - ContentSidePadding * 2 - 6.dp * (columnCount - 1)) / columnCount)
+            .coerceAtLeast(1.dp)
         // Keep the existing peek of the next column, but never make a page wider
         // than the content area on a narrow window.
         val quickColumnWidth = (maxWidth - ContentSidePadding * 2 - 36.dp).coerceIn(190.dp, 360.dp)
@@ -182,7 +238,7 @@ internal fun HomeMusicPage(
                         if (topSongs.size > 1) featuredIndex =
                             (featuredIndex + direction + topSongs.size) % topSongs.size
                     },
-                    quickContent = {
+                    quickContent = { heroInput ->
                         if (library is MusicLibraryState.Ready && songs.isNotEmpty()) {
                             if (quickPages.isNotEmpty()) {
                                 SectionHeading(
@@ -208,12 +264,20 @@ internal fun HomeMusicPage(
                                 }
                                 Spacer(Modifier.height(26.dp))
                             }
-                            // Include the heading in the same fading scene, so the
-                            // transition from Quick Picks to All Songs has no seam.
-                            SectionHeading(
-                                "All Songs",
-                                note = if (songs.size == 1) "1 song" else "${songs.size} songs",
-                                onTitleClick = if (songs.size > 12) ::toggleAllSongs else null,
+                            // Keep the heading inside the fading hero scene; its
+                            // popup samples the page in a separate window.
+                            AllSongsHeading(
+                                songCount = songs.size, columns = columnCount,
+                                onColumnsChange = { value ->
+                                    columnCount = value
+                                    displayPrefs.edit().putInt("columns", value).apply()
+                                },
+                                sort = sortOrder,
+                                onSortChange = { value ->
+                                    sortOrder = value
+                                    displayPrefs.edit().putString("sort", value.name).apply()
+                                },
+                                heroInput = heroInput, pageInput = pageInput, liveBlur = liveBlur,
                             )
                         }
                     },
@@ -228,9 +292,13 @@ internal fun HomeMusicPage(
                             LibraryMessage("No music found yet. Add songs to your device and reopen Crescendo.")
                         }
                     } else {
-                        items(shownRows, key = { it.first().id }) { row ->
+                        items(shownRows, key = { "all-song-row:${it.first().id}" }, contentType = { "song-grid-row" }) { row ->
                             Row(
-                                modifier = Modifier.fillMaxWidth()
+                                modifier = Modifier.animateItem(
+                                    fadeInSpec = tween(300, easing = FastOutSlowInEasing),
+                                    fadeOutSpec = tween(220, easing = FastOutSlowInEasing),
+                                    placementSpec = tween(320, easing = FastOutSlowInEasing),
+                                ).fillMaxWidth()
                                     .padding(start = ContentSidePadding, end = ContentSidePadding, bottom = 7.dp),
                                 horizontalArrangement = Arrangement.spacedBy(6.dp),
                             ) {
@@ -238,21 +306,25 @@ internal fun HomeMusicPage(
                                     SongGridCard(
                                         song = song,
                                         artwork = artwork,
+                                        artworkSize = cardWidth,
                                         playing = isPlaying && currentSong?.id == song.id,
                                         onClick = { onSongClick(song) },
                                         modifier = Modifier.weight(1f),
                                     )
                                 }
-                                repeat(4 - row.size) { Spacer(Modifier.weight(1f)) }
+                                repeat(columnCount - row.size) { Spacer(Modifier.weight(1f)) }
                             }
                         }
-                        if (songs.size > 12) {
-                            item(key = "all-toggle") {
+                        if (allRows.size > COLLAPSED_ALL_SONG_ROWS) {
+                            item(key = "all-toggle", contentType = "all-toggle") {
                                 Box(
-                                    Modifier.fillMaxWidth().padding(horizontal = ContentSidePadding, vertical = 14.dp)
+                                    Modifier.animateItem(
+                                        fadeInSpec = tween(300), fadeOutSpec = tween(220),
+                                        placementSpec = tween(320, easing = FastOutSlowInEasing),
+                                    ).fillMaxWidth().padding(horizontal = ContentSidePadding, vertical = 14.dp)
                                         .heightIn(min = 46.dp).clip(RoundedCornerShape(24.dp))
                                         .background(MaterialTheme.colorScheme.onBackground.copy(alpha = 0.07f))
-                                        .clickable(role = Role.Button) { showAll = !showAll },
+                                        .clickable(enabled = !collapsing, role = Role.Button, onClick = ::toggleAllSongs),
                                     contentAlignment = Alignment.Center,
                                 ) {
                                     Text(if (showAll) "Show Less" else "Show All",
@@ -315,36 +387,58 @@ private fun SectionHeading(
     }
 }
 
-/** Square artwork, with all metadata underneath. Covers deliberately have no border. */
+/** Equal-height metadata slots; only the square artwork is rounded and clipped. */
 @Composable
 private fun SongGridCard(
     song: Song,
     artwork: AlbumArtworkLoader,
+    artworkSize: Dp,
     playing: Boolean,
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
     val colors = MaterialTheme.colorScheme
+    val density = LocalDensity.current
+    val titleHeight = with(density) { 18.sp.toDp() }
+    val artistHeight = with(density) { 16.sp.toDp() }
+    val durationHeight = with(density) { 15.sp.toDp() }
+    val duration = formatSongDuration(song.durationMs)
     Column(
-        modifier = modifier.clip(RoundedCornerShape(10.dp))
-            .clickable(role = Role.Button, onClick = onClick)
-            .semantics { contentDescription = listOfNotNull(song.title, song.artist, formatSongDuration(song.durationMs)).joinToString(", ") },
+        modifier = modifier.clickable(role = Role.Button, onClick = onClick)
+            .semantics {
+                contentDescription = listOfNotNull(song.title, song.artist,
+                    duration ?: "Duration unavailable", if (playing) "Playing" else null).joinToString(", ")
+            },
     ) {
         Box(Modifier.fillMaxWidth().aspectRatio(1f).clip(RoundedCornerShape(9.dp))) {
-            // Grid covers need no palette extraction; load only their sized bitmap.
-            SongArtwork(song, artwork, Modifier.fillMaxSize(), 120.dp)
+            // Request the actual column width, including larger two-column covers.
+            SongArtwork(song, artwork, Modifier.fillMaxSize(), artworkSize)
             if (playing) PlayingBadge(Modifier.align(Alignment.TopEnd).padding(4.dp))
         }
-        // Let metadata take the height it needs rather than clipping it to the
-        // narrow four-column cover width (including with larger system fonts).
-        Text(song.title, color = if (playing) colors.primary else colors.onBackground,
-            fontSize = 12.sp, lineHeight = 15.sp, fontWeight = FontWeight.SemiBold,
-            softWrap = true, modifier = Modifier.fillMaxWidth().padding(top = 6.dp))
-        Text(song.artist, color = colors.onBackground.copy(alpha = 0.60f), fontSize = 11.sp,
-            lineHeight = 14.sp, softWrap = true, modifier = Modifier.fillMaxWidth())
-        formatSongDuration(song.durationMs)?.let { duration ->
-            Text(duration, color = colors.onBackground.copy(alpha = 0.55f), fontSize = 10.sp,
-                lineHeight = 13.sp, softWrap = true, modifier = Modifier.fillMaxWidth())
+        Spacer(Modifier.height(6.dp))
+        // Metadata lives outside the rounded artwork, so corner clipping can
+        // never cut its first/last characters. Reserve the same slots for every song.
+        Column(Modifier.fillMaxWidth().padding(horizontal = 2.dp)) {
+            Box(Modifier.fillMaxWidth().height(titleHeight), contentAlignment = Alignment.CenterStart) {
+                Text(song.title, color = if (playing) colors.primary else colors.onBackground,
+                    fontSize = 12.sp, lineHeight = 15.sp, fontWeight = FontWeight.SemiBold,
+                    softWrap = false, maxLines = 1, overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier.fillMaxWidth())
+            }
+            Box(Modifier.fillMaxWidth().height(artistHeight), contentAlignment = Alignment.CenterStart) {
+                Text(song.artist, color = colors.onBackground.copy(alpha = 0.60f),
+                    fontSize = 11.sp, lineHeight = 14.sp, softWrap = false, maxLines = 1,
+                    overflow = TextOverflow.Ellipsis, modifier = Modifier.fillMaxWidth())
+            }
+            Box(Modifier.fillMaxWidth().height(durationHeight), contentAlignment = Alignment.CenterStart) {
+                // Narrow five-column cells shrink only the time if necessary;
+                // the complete duration remains available to accessibility services.
+                BasicText(duration ?: "—", modifier = Modifier.fillMaxWidth(),
+                    style = TextStyle(color = colors.onBackground.copy(alpha = 0.55f),
+                        fontFamily = SfProFamily, fontSize = 10.sp, lineHeight = 13.sp),
+                    autoSize = DurationAutoSize, softWrap = false, maxLines = 1,
+                    overflow = TextOverflow.Ellipsis)
+            }
         }
     }
 }

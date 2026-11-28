@@ -48,6 +48,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.drawWithCache
 import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.BlendMode
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
@@ -112,7 +113,7 @@ internal fun HomeHero(
     onPlay: (Song) -> Unit,
     onShuffle: () -> Unit,
     onSwipe: (Int) -> Unit,
-    quickContent: @Composable () -> Unit,
+    quickContent: @Composable (HazeInput.Sources) -> Unit,
 ) {
     val colors = MaterialTheme.colorScheme
     val dark = colors.background.luminance() < 0.5f
@@ -183,10 +184,11 @@ internal fun HomeHero(
     val playing = isPlaying && displayedSong?.id == currentSong?.id
 
     BoxWithConstraints(Modifier.fillMaxWidth()) {
-        val coverSize = (maxWidth * 0.50f).coerceIn(140.dp, 226.dp)
+        // A little larger and higher, with the right side bleeding to the screen edge.
+        val coverSize = (maxWidth * 0.54f).coerceIn(148.dp, 242.dp)
         val textWidth = (maxWidth - coverSize - ContentSidePadding * 2 - 4.dp).coerceAtLeast(100.dp)
         val playWidth = (textWidth - 50.dp).coerceIn(68.dp, 112.dp)
-        val heroHeight = status + maxOf(330.dp, coverSize + 156.dp)
+        val heroHeight = status + maxOf(330.dp, coverSize + 138.dp)
         Box(Modifier.fillMaxWidth()) {
             // Only the background and cover are captured. The buttons never sample themselves.
             Box(
@@ -196,7 +198,7 @@ internal fun HomeHero(
             ) {
                 Box(
                     Modifier.align(Alignment.TopEnd)
-                        .padding(top = status + 132.dp, end = ContentSidePadding - 4.dp)
+                        .padding(top = status + 112.dp)
                         .size(coverSize)
                         .semantics {
                             contentDescription = displayedSong?.let {
@@ -320,7 +322,7 @@ internal fun HomeHero(
                         }
                     }
                 }
-                quickContent()
+                quickContent(heroInput)
             }
         }
     }
@@ -392,20 +394,27 @@ internal fun homeGreetings(hour: Int): List<Pair<String, String>> {
     return anytime + timely
 }
 
-/** Feather every side into the ambience, with a faint tint from that side of the cover. */
+/** Wide, eased fades make the cover emerge from the surrounding color without a hard start. */
 private fun Modifier.featheredArtwork(edges: ArtworkEdgePalette?): Modifier =
     graphicsLayer { compositingStrategy = CompositingStrategy.Offscreen }.drawWithCache {
-        val horizontalMask = Brush.horizontalGradient(0f to Color.Transparent, 0.20f to Color.Black,
-            0.80f to Color.Black, 1f to Color.Transparent)
-        val verticalMask = Brush.verticalGradient(0f to Color.Transparent, 0.20f to Color.Black,
-            0.80f to Color.Black, 1f to Color.Transparent)
+        // Multiple stops approximate smoothstep rather than a conspicuous linear frame.
+        val fade = arrayOf(
+            0f to Color.Transparent, 0.04f to Color.Black.copy(alpha = 0.015f),
+            0.10f to Color.Black.copy(alpha = 0.10f), 0.18f to Color.Black.copy(alpha = 0.34f),
+            0.28f to Color.Black.copy(alpha = 0.78f), 0.38f to Color.Black,
+            0.62f to Color.Black, 0.72f to Color.Black.copy(alpha = 0.78f),
+            0.82f to Color.Black.copy(alpha = 0.34f), 0.90f to Color.Black.copy(alpha = 0.10f),
+            0.96f to Color.Black.copy(alpha = 0.015f), 1f to Color.Transparent,
+        )
+        val horizontalMask = Brush.horizontalGradient(colorStops = fade)
+        val verticalMask = Brush.verticalGradient(colorStops = fade)
         val horizontalTint = edges?.let {
-            Brush.horizontalGradient(0f to Color(it.left).copy(alpha = 0.20f),
-                0.30f to Color.Transparent, 0.70f to Color.Transparent, 1f to Color(it.right).copy(alpha = 0.20f))
+            Brush.horizontalGradient(0f to Color(it.left).copy(alpha = 0.12f),
+                0.32f to Color.Transparent, 0.68f to Color.Transparent, 1f to Color(it.right).copy(alpha = 0.12f))
         }
         val verticalTint = edges?.let {
-            Brush.verticalGradient(0f to Color(it.top).copy(alpha = 0.14f),
-                0.28f to Color.Transparent, 0.72f to Color.Transparent, 1f to Color(it.bottom).copy(alpha = 0.14f))
+            Brush.verticalGradient(0f to Color(it.top).copy(alpha = 0.09f),
+                0.32f to Color.Transparent, 0.68f to Color.Transparent, 1f to Color(it.bottom).copy(alpha = 0.09f))
         }
         onDrawWithContent {
             drawContent()
@@ -441,17 +450,22 @@ private fun Modifier.ambientCoverGlow(
         1f to color.copy(alpha = 0f),
         center = center, radius = radius.coerceAtLeast(1f),
     )
-    val secondGlow = glow(next, 0.96f, Offset(size.width * 0.88f, size.height * 0.12f), size.height * 0.65f)
-    val lowerGlow = glow(bottom, 0.55f, Offset(size.width * 0.26f, size.height * 0.43f), size.height * 0.48f)
+    val secondGlow = glow(next, 0.98f, Offset(size.width * 0.88f, size.height * 0.12f), size.height * 0.70f)
+    val lowerGlow = glow(bottom, 0.62f, Offset(size.width * 0.26f, size.height * 0.43f), size.height * 0.48f)
     val driftSpan = minOf(size.width, size.height)
+    // The translated gradients must overdraw their old bounds. Otherwise their
+    // movement leaves a narrow, straight strip at one edge of the screen.
+    val overscan = driftSpan * 0.025f
+    val glowOrigin = Offset(-overscan, -overscan)
+    val glowSize = Size(size.width + overscan * 2f, size.height + overscan * 2f)
     onDrawBehind {
         drawRect(solidToClear)
         val drift = sin(phase.value * 2f * PI.toFloat())
         translate(left = drift * driftSpan * 0.018f, top = drift * driftSpan * 0.012f) {
-            drawRect(secondGlow)
+            drawRect(secondGlow, topLeft = glowOrigin, size = glowSize)
         }
         translate(left = -drift * driftSpan * 0.018f, top = -drift * driftSpan * 0.012f) {
-            drawRect(lowerGlow)
+            drawRect(lowerGlow, topLeft = glowOrigin, size = glowSize)
         }
     }
 }

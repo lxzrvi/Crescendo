@@ -97,6 +97,8 @@ dependencies {
     // Haze still supplies the progressive blur behind the status bar.
     implementation("dev.chrisbanes.haze:haze:2.1.0")
     implementation("dev.chrisbanes.haze:haze-blur:2.1.0")
+    // Borderless refractive/blurred All Songs menus, using the same captured page.
+    implementation("dev.chrisbanes.haze:haze-glass:2.1.0")
 
     // Pinned upstream PrismalAGSL v1.0.7, including its AGSL assets and manifest.
     // The AAR is vendored to avoid relying on a JitPack download during builds.
