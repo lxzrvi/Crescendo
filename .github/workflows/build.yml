@@ -131,6 +131,9 @@ jobs:
         with:
           cache-read-only: true
 
-      # AGP 9 enables unit tests for debug by default; keep them beside release lint.
+      # Release host tests reuse release compilation, keeping checks alongside assembly.
       - name: Analyze fatal release lint and run unit tests
-        run: ./gradlew lintVitalRelease testDebugUnitTest --no-daemon --parallel --build-cache
+        run: ./gradlew lintVitalRelease testReleaseUnitTest --no-daemon --parallel --build-cache
+
+      - name: Summarize unit tests
+        run: python3 .github/scripts/summarize-tests.py app/build/test-results/testReleaseUnitTest

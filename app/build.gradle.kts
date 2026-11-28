@@ -1,3 +1,5 @@
+import com.android.build.api.variant.HostTestBuilder
+
 plugins {
     id("com.android.application")
     id("org.jetbrains.kotlin.plugin.compose")
@@ -56,6 +58,14 @@ android {
 
     buildFeatures {
         compose = true
+    }
+}
+
+// AGP 9 enables host tests for debug only unless a release variant opts in.
+// This reuses the release compilation for CI tests without touching APK signing.
+androidComponents {
+    beforeVariants(selector().withBuildType("release")) { variant ->
+        variant.hostTests.getValue(HostTestBuilder.UNIT_TEST_TYPE).enable = true
     }
 }
 
