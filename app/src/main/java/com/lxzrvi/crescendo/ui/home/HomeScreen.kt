@@ -14,11 +14,10 @@ import androidx.compose.animation.slideInHorizontally
 import androidx.compose.animation.slideOutHorizontally
 import androidx.compose.animation.togetherWith
 import androidx.compose.animation.core.Animatable
+import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
-import androidx.compose.foundation.border
-import androidx.compose.foundation.clickable
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.WindowInsets
@@ -27,22 +26,15 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.ime
 import androidx.compose.foundation.layout.isImeVisible
 import androidx.compose.foundation.layout.navigationBars
-import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.foundation.lazy.rememberLazyListState
-import androidx.compose.foundation.shape.CircleShape
-import androidx.compose.material3.AlertDialog
-import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateOf
@@ -50,20 +42,15 @@ import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
-import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.clip
-import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.draw.blur
 import androidx.compose.ui.graphics.graphicsLayer
-import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.platform.LocalView
-import androidx.compose.ui.res.painterResource
-import androidx.compose.ui.semantics.Role
-import androidx.compose.ui.semantics.contentDescription
-import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.unit.dp
 import androidx.core.view.WindowCompat
 import androidx.lifecycle.Lifecycle
@@ -246,10 +233,43 @@ private fun HomeScreenContent(
     }
     LaunchedEffect(Unit) { initialFade.animateTo(1f, tween(500, easing = FastOutSlowInEasing)) }
     LaunchedEffect(query) { searchState.scrollToItem(0) }
-    val activeState = stateFor(destination)
-    // Dock only while a scroll is actually in progress, not because the page is deep.
-    val miniCollapsed = activeState.isScrollInProgress ||
-        (destination == Destination.Home && (quickState.isScrollInProgress || moodsState.isScrollInProgress))
+    // Match the reference's persistent dock: enough downward Home scroll collapses;
+    // upward movement, reaching the top, tapping the disc, or leaving Home expands it.
+    val density = LocalDensity.current
+    val downThreshold = with(density) { 70.dp.toPx() }
+    val deepThreshold = with(density) { 120.dp.toPx() }
+    val topThreshold = with(density) { 80.dp.toPx() }
+    val upwardThreshold = with(density) { 4.dp.toPx() }
+    var downDistance by remember { mutableFloatStateOf(0f) }
+    var upDistance by remember { mutableFloatStateOf(0f) }
+    var miniDocked by remember { mutableStateOf(false) }
+    LaunchedEffect(destination, currentSong?.id) {
+        if (destination != Destination.Home || currentSong == null) {
+            miniDocked = false
+            downDistance = 0f
+            upDistance = 0f
+        }
+    }
+    fun onHomeScroll(consumedY: Float) {
+        if (destination != Destination.Home || currentSong == null) return
+        val firstItem = homeState.firstVisibleItemIndex == 0
+        val offset = homeState.firstVisibleItemScrollOffset.toFloat()
+        when {
+            firstItem && offset < topThreshold -> { miniDocked = false; downDistance = 0f; upDistance = 0f }
+            consumedY > 0f -> {
+                // Accumulate small high-refresh deltas too, so a gentle upward scroll expands.
+                upDistance += consumedY
+                if (upDistance > upwardThreshold) { miniDocked = false; downDistance = 0f }
+            }
+            consumedY < 0f -> {
+                upDistance = 0f
+                downDistance = (downDistance - consumedY).coerceAtMost(deepThreshold * 2f)
+                if (downDistance > downThreshold && (!firstItem || offset > deepThreshold)) miniDocked = true
+            }
+        }
+    }
+    val miniCollapsed = destination == Destination.Home && miniDocked
+    val profileBlur by animateDpAsState(if (showProfile) 10.dp else 0.dp, tween(220), label = "profileBackdropBlur")
 
     fun closeSearch() {
         keyboard?.hide()
@@ -270,115 +290,93 @@ private fun HomeScreenContent(
     val pageBottomPadding = maxOf(bottomInset, imeInset) + if (currentSong != null) 184.dp else 108.dp
 
     Box(modifier = modifier.fillMaxSize().background(colors.background)) {
-        Box(
-            modifier = Modifier.fillMaxSize()
-                .hazeSource(state = hazeState, zIndex = 0f, key = PAGE_SOURCE_KEY)
-                .then(if (appearance.liveBlur) Modifier.prismalGlassLayer(pageBackdrop) else Modifier)
-                .background(colors.background),
-        ) {
-            // A separate source for in-page glass avoids sampling the page into itself.
-            Box(Modifier.fillMaxSize().prismalGlassLayer(wallpaperBackdrop).background(colors.background)) {
-                AppPhotoBackground(appearance)
-            }
-            AnimatedContent(
-                targetState = destination,
-                modifier = Modifier.fillMaxSize(),
-                transitionSpec = {
-                    val direction = if (targetState.ordinal >= initialState.ordinal) 1 else -1
-                    (fadeIn(tween(380, easing = FastOutSlowInEasing)) +
-                        slideInHorizontally(tween(420, easing = FastOutSlowInEasing)) { width ->
-                            (width * 0.025f * direction).roundToInt()
-                        }) togetherWith
-                        (fadeOut(tween(300, easing = FastOutSlowInEasing)) +
-                            slideOutHorizontally(tween(380, easing = FastOutSlowInEasing)) { width ->
-                                (-width * 0.018f * direction).roundToInt()
-                            })
-                },
-                label = "pageTransition",
-            ) { page ->
-                val fade = Modifier.graphicsLayer { alpha = initialFade.value }
-                when (page) {
-                    Destination.Home -> HomeMusicPage(
-                        library = library, playCounts = playCounts, artwork = artwork,
-                        currentSong = currentSong, isPlaying = playback.isPlaying,
-                        shuffleEnabled = playback.shuffleEnabled, animateHero = appearance.animateHero, liveBlur = appearance.liveBlur,
-                        onSongClick = playback::select,
-                        onShuffle = { playback.toggleShuffle((library as? MusicLibraryState.Ready)?.songs.orEmpty()) },
-                        listState = homeState, quickState = quickState, moodsState = moodsState,
-                        bottomPadding = pageBottomPadding, modifier = fade,
-                    )
-                    Destination.Library -> LibraryCollectionsPage(
-                        library = library, playCounts = playCounts, recentTimes = recentTimes, liked = liked,
-                        artwork = artwork, currentSong = currentSong, isPlaying = playback.isPlaying,
-                        onSongClick = playback::select, onLike = { liked = history.toggleLiked(it) },
-                        category = libraryCategory, onCategoryChange = { libraryCategory = it },
-                        overviewState = libraryState, detailState = libraryDetailState,
-                        bottomPadding = pageBottomPadding, modifier = fade,
-                    )
-                    else -> MusicListPage(
-                        destination = page, library = library, query = query, artwork = artwork,
-                        currentSong = currentSong, isPlaying = playback.isPlaying, onSongClick = playback::select,
-                        appearance = appearance, onAppearanceChange = onAppearanceChange,
-                        settingsBackdrop = wallpaperBackdrop,
-                        listState = stateFor(page), bottomPadding = pageBottomPadding, modifier = fade,
-                    )
+        Box(Modifier.fillMaxSize().blur(profileBlur)
+            .then(if (showProfile) Modifier.clearAndSetSemantics { } else Modifier)) {
+            Box(
+                modifier = Modifier.fillMaxSize()
+                    .hazeSource(state = hazeState, zIndex = 0f, key = PAGE_SOURCE_KEY)
+                    .then(if (appearance.liveBlur) Modifier.prismalGlassLayer(pageBackdrop) else Modifier)
+                    .background(colors.background),
+            ) {
+                // A separate source for in-page glass avoids sampling the page into itself.
+                Box(Modifier.fillMaxSize().prismalGlassLayer(wallpaperBackdrop).background(colors.background)) {
+                    AppPhotoBackground(appearance)
+                }
+                AnimatedContent(
+                    targetState = destination,
+                    modifier = Modifier.fillMaxSize(),
+                    transitionSpec = {
+                        val direction = if (targetState.ordinal >= initialState.ordinal) 1 else -1
+                        (fadeIn(tween(380, easing = FastOutSlowInEasing)) +
+                            slideInHorizontally(tween(420, easing = FastOutSlowInEasing)) { width ->
+                                (width * 0.025f * direction).roundToInt()
+                            }) togetherWith
+                            (fadeOut(tween(300, easing = FastOutSlowInEasing)) +
+                                slideOutHorizontally(tween(380, easing = FastOutSlowInEasing)) { width ->
+                                    (-width * 0.018f * direction).roundToInt()
+                                })
+                    },
+                    label = "pageTransition",
+                ) { page ->
+                    val fade = Modifier.graphicsLayer { alpha = initialFade.value }
+                    when (page) {
+                        Destination.Home -> HomeMusicPage(
+                            library = library, playCounts = playCounts, artwork = artwork,
+                            currentSong = currentSong, isPlaying = playback.isPlaying,
+                            shuffleEnabled = playback.shuffleEnabled, animateHero = appearance.animateHero, liveBlur = appearance.liveBlur,
+                            onSongClick = playback::select,
+                            onShuffle = { playback.toggleShuffle((library as? MusicLibraryState.Ready)?.songs.orEmpty()) },
+                            onVerticalScroll = ::onHomeScroll,
+                            listState = homeState, quickState = quickState, moodsState = moodsState,
+                            bottomPadding = pageBottomPadding, modifier = fade,
+                        )
+                        Destination.Library -> LibraryCollectionsPage(
+                            library = library, playCounts = playCounts, recentTimes = recentTimes, liked = liked,
+                            artwork = artwork, currentSong = currentSong, isPlaying = playback.isPlaying,
+                            onSongClick = playback::select, onLike = { liked = history.toggleLiked(it) },
+                            category = libraryCategory, onCategoryChange = { libraryCategory = it },
+                            overviewState = libraryState, detailState = libraryDetailState,
+                            bottomPadding = pageBottomPadding, modifier = fade,
+                        )
+                        else -> MusicListPage(
+                            destination = page, library = library, query = query, artwork = artwork,
+                            currentSong = currentSong, isPlaying = playback.isPlaying, onSongClick = playback::select,
+                            appearance = appearance, onAppearanceChange = onAppearanceChange,
+                            settingsBackdrop = wallpaperBackdrop,
+                            listState = stateFor(page), bottomPadding = pageBottomPadding, modifier = fade,
+                        )
+                    }
                 }
             }
-        }
-        StatusBarBackdrop(input = pageInput, liveBlur = appearance.liveBlur)
-        if (destination != Destination.Settings) {
-            ProfileButton(
-                onClick = { showProfile = true },
-                modifier = Modifier.align(Alignment.TopEnd).statusBarsPadding()
-                    .padding(end = ContentSidePadding, top = 8.dp),
+            StatusBarBackdrop(input = pageInput, liveBlur = appearance.liveBlur)
+            FloatingNavigation(
+                selected = destination, previousTab = previousTab, query = query,
+                onQueryChange = { query = it.take(120) },
+                onSelectTab = { tab ->
+                    if (imeVisible) { keyboard?.hide(); focusManager.clearFocus(force = true) }
+                    previousTab = tab
+                    destination = tab
+                },
+                onOpenSearch = { if (destination != Destination.Search) { previousTab = destination; destination = Destination.Search } },
+                onReturnToTab = { closeSearch() }, onSearchDone = { keyboard?.hide() },
+                imeVisible = imeVisible, pageBackdrop = pageBackdrop, pageInput = pageInput, liveBlur = appearance.liveBlur,
+                miniSong = currentSong, artwork = artwork, miniPlaying = playback.isPlaying,
+                miniLoading = playback.isLoading, miniError = playback.errorMessage, miniProgress = progress,
+                miniCollapsed = miniCollapsed, onMiniToggle = playback::toggle,
+                onMiniNext = { playback.next((library as? MusicLibraryState.Ready)?.songs.orEmpty()) },
+                onMiniExpand = { miniDocked = false; downDistance = 0f; upDistance = 0f },
             )
         }
-        FloatingNavigation(
-            selected = destination, previousTab = previousTab, query = query,
-            onQueryChange = { query = it.take(120) },
-            onSelectTab = { tab ->
-                if (imeVisible) { keyboard?.hide(); focusManager.clearFocus(force = true) }
-                previousTab = tab
-                destination = tab
+        ProfileMenu(
+            expanded = showProfile, onExpandedChange = {
+                if (it && imeVisible) { keyboard?.hide(); focusManager.clearFocus(force = true) }
+                showProfile = it
             },
-            onOpenSearch = { if (destination != Destination.Search) { previousTab = destination; destination = Destination.Search } },
-            onReturnToTab = { closeSearch() }, onSearchDone = { keyboard?.hide() },
-            imeVisible = imeVisible, pageBackdrop = pageBackdrop, pageInput = pageInput, liveBlur = appearance.liveBlur,
-            miniSong = currentSong, artwork = artwork, miniPlaying = playback.isPlaying,
-            miniLoading = playback.isLoading, miniError = playback.errorMessage, miniProgress = progress,
-            miniCollapsed = miniCollapsed, onMiniToggle = playback::toggle,
-            onMiniNext = { playback.next((library as? MusicLibraryState.Ready)?.songs.orEmpty()) },
+            pageBackdrop = pageBackdrop, liveBlur = appearance.liveBlur,
+            onSettings = { previousTab = Destination.Settings; destination = Destination.Settings },
         )
         AnimatedVisibility(visible = !startupReady, enter = fadeIn(), exit = fadeOut(tween(360))) {
             StartupLoadingScreen()
         }
-    }
-
-    if (showProfile) {
-        val count = (library as? MusicLibraryState.Ready)?.songs?.size ?: 0
-        AlertDialog(
-            onDismissRequest = { showProfile = false },
-            title = { Text("Profile") },
-            text = { Text("Your music stays on this device. Your local library has $count ${if (count == 1) "song" else "songs"}.") },
-            confirmButton = { TextButton(onClick = { showProfile = false }) { Text("Done") } },
-        )
-    }
-}
-
-/** Pinned above all pages except Settings, independent of list scroll position. */
-@Composable
-private fun ProfileButton(onClick: () -> Unit, modifier: Modifier = Modifier) {
-    val colors = MaterialTheme.colorScheme
-    val dark = colors.background.luminance() < 0.5f
-    Box(
-        modifier = modifier.size(42.dp).clip(CircleShape)
-            .background(if (dark) Color.Black.copy(alpha = 0.42f) else Color.White.copy(alpha = 0.72f))
-            .border(0.7.dp, colors.onBackground.copy(alpha = 0.18f), CircleShape)
-            .clickable(role = Role.Button, onClick = onClick)
-            .semantics { contentDescription = "Profile" },
-        contentAlignment = Alignment.Center,
-    ) {
-        Icon(painterResource(R.drawable.ic_profile), contentDescription = null,
-            tint = colors.onBackground, modifier = Modifier.size(23.dp))
     }
 }

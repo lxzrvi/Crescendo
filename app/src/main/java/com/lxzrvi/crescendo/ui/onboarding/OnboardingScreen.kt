@@ -399,8 +399,9 @@ fun OnboardingScreen(gradientPhase: State<Float>, onFinished: () -> Unit) {
                                 scaleY = size
                                 alpha = loaderReveal.value * (1f - depart)
                             },
-                        // Match the traveling mark exactly in both system themes.
+                        // Keep the mark neutral while the comet uses the app accent.
                         color = colors.onBackground,
+                        beamColor = colors.primary,
                     )
                 }
             }

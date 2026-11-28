@@ -38,12 +38,12 @@ import kotlinx.coroutines.withContext
 import kotlin.math.max
 
 /** Copies the picker result privately; access does not depend on a persistent gallery grant. */
-internal class BackgroundPhotoStore(context: Context) {
+internal class BackgroundPhotoStore(context: Context, private val name: String = "crescendo_background_photo") {
     private val appContext = context.applicationContext
-    private val file = File(appContext.filesDir, "crescendo_background_photo")
+    private val file = File(appContext.filesDir, name)
 
     suspend fun importPhoto(uri: Uri): Boolean = withContext(Dispatchers.IO) {
-        val temporary = File(appContext.filesDir, "crescendo_background_photo.pending")
+        val temporary = File(appContext.filesDir, "$name.pending")
         try {
             val input = appContext.contentResolver.openInputStream(uri) ?: return@withContext false
             input.use { source ->
@@ -76,12 +76,12 @@ internal class BackgroundPhotoStore(context: Context) {
 
     fun remove() { file.delete() }
 
-    fun load(): Bitmap? = try {
+    fun load(maxSide: Int = 1600): Bitmap? = try {
         if (!file.exists()) null else {
             val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
             BitmapFactory.decodeFile(file.absolutePath, bounds)
             var sample = 1
-            while (max(bounds.outWidth, bounds.outHeight) / sample > 1600) sample *= 2
+            while (max(bounds.outWidth, bounds.outHeight) / sample > maxSide.coerceAtLeast(1)) sample *= 2
             val decoded = BitmapFactory.decodeFile(file.absolutePath, BitmapFactory.Options().apply {
                 inSampleSize = sample
                 inPreferredConfig = Bitmap.Config.ARGB_8888

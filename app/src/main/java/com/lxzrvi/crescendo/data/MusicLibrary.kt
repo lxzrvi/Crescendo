@@ -37,6 +37,8 @@ internal data class Song(
     val durationMs: Long,
     val dateAdded: Long,
     val dateModified: Long,
+    // Android 11+ indexes genre; older providers may not expose it.
+    val genre: String? = null,
 ) {
     // Limit accidental count transfers if MediaStore reuses a row ID.
     val historyKey: String get() = "$id:$dateAdded:$durationMs"
@@ -106,13 +108,18 @@ private fun queryDeviceSongs(context: Context): List<Song> {
         add(MediaStore.Audio.Media.DISPLAY_NAME)
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) add(MediaStore.MediaColumns.VOLUME_NAME)
     }.toTypedArray()
-    val cursor = context.contentResolver.query(
-        collection,
-        projection,
-        "${MediaStore.Audio.Media.IS_MUSIC} != 0",
-        null,
-        "${MediaStore.Audio.Media.TITLE} COLLATE NOCASE ASC",
-    ) ?: error("MediaStore returned no cursor")
+    val selection = "${MediaStore.Audio.Media.IS_MUSIC} != 0"
+    val order = "${MediaStore.Audio.Media.TITLE} COLLATE NOCASE ASC"
+    // Some vendor media providers omit optional columns even on newer Android.
+    // Retry without genre rather than losing access to the entire library.
+    val cursor = try {
+        val withGenre = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R)
+            projection + MediaStore.Audio.Media.GENRE else projection
+        context.contentResolver.query(collection, withGenre, selection, null, order)
+    } catch (unsupported: Exception) {
+        if (unsupported is SecurityException || Build.VERSION.SDK_INT < Build.VERSION_CODES.R) throw unsupported
+        context.contentResolver.query(collection, projection, selection, null, order)
+    } ?: error("MediaStore returned no cursor")
 
     return cursor.use { rows ->
         val idColumn = rows.getColumnIndexOrThrow(MediaStore.Audio.Media._ID)
@@ -124,6 +131,8 @@ private fun queryDeviceSongs(context: Context): List<Song> {
         val addedColumn = rows.getColumnIndexOrThrow(MediaStore.Audio.Media.DATE_ADDED)
         val modifiedColumn = rows.getColumnIndexOrThrow(MediaStore.Audio.Media.DATE_MODIFIED)
         val nameColumn = rows.getColumnIndexOrThrow(MediaStore.Audio.Media.DISPLAY_NAME)
+        val genreColumn = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R)
+            rows.getColumnIndex(MediaStore.Audio.Media.GENRE) else -1
         val volumeColumn = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q)
             rows.getColumnIndex(MediaStore.MediaColumns.VOLUME_NAME) else -1
         buildList {
@@ -146,6 +155,8 @@ private fun queryDeviceSongs(context: Context): List<Song> {
                         durationMs = rows.getLong(durationColumn).coerceAtLeast(0L),
                         dateAdded = rows.getLong(addedColumn),
                         dateModified = rows.getLong(modifiedColumn),
+                        genre = if (genreColumn >= 0) rows.getString(genreColumn)?.trim()
+                            ?.takeIf { it.isNotEmpty() && it != MediaStore.UNKNOWN_STRING } else null,
                     ),
                 )
             }

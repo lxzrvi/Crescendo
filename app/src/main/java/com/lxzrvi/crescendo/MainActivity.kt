@@ -1,5 +1,6 @@
 package com.lxzrvi.crescendo
 
+import android.os.Build
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
@@ -23,6 +24,7 @@ class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
+        requestSmoothDisplayMode()
 
         val prefs = OnboardingPrefs(this)
         setContent {
@@ -56,6 +58,23 @@ class MainActivity : ComponentActivity() {
                             }
                         },
                     )
+                }
+            }
+        }
+    }
+
+    /** Request the fastest mode at the current resolution; Android may choose otherwise. */
+    @Suppress("DEPRECATION")
+    private fun requestSmoothDisplayMode() {
+        runCatching {
+            val screen = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) display else windowManager.defaultDisplay
+            if (screen != null) {
+                val current = screen.mode
+                val fastest = screen.supportedModes
+                    .filter { it.physicalWidth == current.physicalWidth && it.physicalHeight == current.physicalHeight }
+                    .maxByOrNull { it.refreshRate }
+                if (fastest != null && fastest.refreshRate > current.refreshRate) {
+                    window.attributes = window.attributes.apply { preferredDisplayModeId = fastest.modeId }
                 }
             }
         }

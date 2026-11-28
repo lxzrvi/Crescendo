@@ -26,10 +26,13 @@ jobs:
           distribution: temurin
           java-version: '17'
 
-      - name: Set up Android SDK
-        uses: android-actions/setup-android@v4
-        with:
-          packages: platform-tools
+      # The hosted Ubuntu image already supplies the SDK and command-line tools.
+      # Expose its path to the cache action, then install only on a cache miss.
+      - name: Locate Android SDK
+        shell: bash
+        run: |
+          test -n "${ANDROID_HOME:-}" || { echo "::error::Android SDK is missing on the runner."; exit 1; }
+          echo "ANDROID_HOME=$ANDROID_HOME" >> "$GITHUB_ENV"
 
       - name: Cache Android SDK components
         uses: actions/cache@v4
@@ -39,13 +42,24 @@ jobs:
             ${{ env.ANDROID_HOME }}/build-tools/36.0.0
           key: android-sdk-${{ runner.os }}-37.0-36.0.0-v1
 
-      - name: Install Android SDK components if missing
-        run: sdkmanager "platforms;android-37.0" "build-tools;36.0.0"
+      - name: Install missing Android SDK components
+        shell: bash
+        run: |
+          set -euo pipefail
+          packages=()
+          [[ -f "$ANDROID_HOME/platforms/android-37.0/android.jar" ]] || packages+=("platforms;android-37.0")
+          [[ -x "$ANDROID_HOME/build-tools/36.0.0/apksigner" ]] || packages+=("build-tools;36.0.0")
+          if (( ${#packages[@]} )); then
+            manager="$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager"
+            [[ -x "$manager" ]] || { echo "::error::Android SDK manager is missing on the runner."; exit 1; }
+            yes | "$manager" --licenses >/dev/null 2>&1 || true
+            "$manager" "${packages[@]}"
+          fi
 
       - name: Set up Gradle cache
         uses: gradle/actions/setup-gradle@v6
 
-      - name: Assemble signed release APK
+      - name: Assemble and verify signed release APK
         shell: bash
         env:
           SIGNING_KEY_B64: ${{ secrets.CRESCENDO_RELEASE_KEYSTORE_B64 }}
@@ -63,11 +77,21 @@ jobs:
           unset SIGNING_KEY_B64
           chmod +x ./gradlew
           if ! ./gradlew assembleRelease --no-daemon --parallel --build-cache 2>&1 | tee "$RUNNER_TEMP/crescendo-build.log"; then
-            # Artifact uploads bypass GitHub's automatic log masking. Redact first.
-            python3 -c 'import os,pathlib; p=pathlib.Path(os.environ["RUNNER_TEMP"])/"crescendo-build.log"; s=os.environ["CRESCENDO_RELEASE_PASSWORD"]; p.write_text(p.read_text(errors="replace").replace(s,"[REDACTED]"))'
+            python3 .github/scripts/annotate-build.py "$RUNNER_TEMP/crescendo-build.log"
             exit 1
           fi
-          "$ANDROID_HOME/build-tools/36.0.0/apksigner" verify --verbose --print-certs app/build/outputs/apk/release/app-release.apk
+          certs=$("$ANDROID_HOME/build-tools/36.0.0/apksigner" verify --verbose --print-certs app/build/outputs/apk/release/app-release.apk)
+          printf '%s\n' "$certs"
+          if ! printf '%s\n' "$certs" | grep -Fq 'Verified using v2 scheme (APK Signature Scheme v2): true'; then
+            echo "::error::The APK is missing a valid v2 signature."
+            exit 1
+          fi
+          actual=$(printf '%s\n' "$certs" | sed -n 's/^Signer #1 certificate SHA-256 digest: //p' | tr -d ':[:space:]' | tr '[:upper:]' '[:lower:]')
+          expected=8c09ad22a142204571120d2e47f4bf60dd67af0e2d2b7e4cc2e9462036347c1e
+          if [[ "$actual" != "$expected" ]]; then
+            echo "::error::Signing certificate differs from the previous Crescendo release."
+            exit 1
+          fi
 
       - name: Upload build log if assembly fails
         if: failure()

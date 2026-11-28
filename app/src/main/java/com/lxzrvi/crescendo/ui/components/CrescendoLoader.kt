@@ -37,6 +37,7 @@ private const val ICON_PATH =
 fun CrescendoLoader(
     modifier: Modifier = Modifier.size(72.dp),
     color: Color = Color.White,
+    beamColor: Color = color,
     durationMillis: Int = 2200,   // ek poora chakkar
     strokeWidth: Float = 18f,     // icon units mein (900 = poori width)
 ) {
@@ -66,7 +67,7 @@ fun CrescendoLoader(
             val seg = Path()
 
             // A few overlapping slices keep the comet smooth with less per-frame work.
-            val slices = 20
+            val slices = 14
             val tailLen = len * 0.30f
             val sliceLen = tailLen / slices
 
@@ -89,7 +90,7 @@ fun CrescendoLoader(
                     }
                     drawPath(
                         path = seg,
-                        color = color.copy(alpha = alpha),
+                        color = beamColor.copy(alpha = alpha),
                         style = Stroke(width = width, cap = StrokeCap.Round),
                     )
                 }
@@ -99,8 +100,7 @@ fun CrescendoLoader(
                     val s = unit * (0.96f + 0.04f * b)       // halka breathing
                     scale(s, s, pivot = Offset.Zero)
                 }) {
-                    // Keep the mark solid in the same white/dark ink as the traveling icon;
-                    // the animated comet remains visible around its outer edge.
+                    // Keep the solid mark neutral; the moving beam uses the selected accent.
                     drawPath(iconPath, color, style = Fill)
 
                     // Comet: head se peeche tak fade (glow + sharp line)

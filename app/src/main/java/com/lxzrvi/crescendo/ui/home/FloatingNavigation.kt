@@ -100,6 +100,7 @@ internal fun FloatingNavigation(
     miniCollapsed: Boolean,
     onMiniToggle: () -> Unit,
     onMiniNext: () -> Unit,
+    onMiniExpand: () -> Unit,
 ) {
     val colors = MaterialTheme.colorScheme
     val isLightTheme = colors.background.luminance() >= 0.5f
@@ -137,8 +138,8 @@ internal fun FloatingNavigation(
         label = "navigationSearchMorph",
     )
     val compact by animateFloatAsState(
-        // The keyboard needs a compact bubble; otherwise collapse only during active scroll.
-        targetValue = if (miniSong != null && (miniCollapsed || (searching && imeVisible))) 1f else 0f,
+        // Only Home's accumulated scroll docks the disc; every other tab stays expanded.
+        targetValue = if (miniSong != null && miniCollapsed) 1f else 0f,
         animationSpec = tween(440, easing = FastOutSlowInEasing),
         label = "miniPlayerDock",
     )
@@ -162,9 +163,8 @@ internal fun FloatingNavigation(
         val navWidth = wideWidth * (1f - morph) + barHeight * morph
         val searchWidth = (availableWidth - navWidth - gap - miniSpace).coerceAtLeast(barHeight)
         val searchImeModifier = if (searching && imeVisible) Modifier.imePadding() else Modifier
-        val indicatorAlpha = (1f - morph * 1.55f).coerceIn(0f, 1f)
-        val tabsAlpha = (1f - morph * 1.35f).coerceIn(0f, 1f)
-        val returnAlpha = (morph * 1.35f - 0.25f).coerceIn(0f, 1f)
+        val tabsAlpha = (1f - morph).coerceIn(0f, 1f)
+        val returnAlpha = morph.coerceIn(0f, 1f)
         val controlsEnabled = !searching && morph < 0.25f
 
         // A real sampled-glass bridge sits beneath the two capsules. Its concave
@@ -191,9 +191,7 @@ internal fun FloatingNavigation(
             backdrop = backdrop,
             isLightTheme = isLightTheme,
             controlsEnabled = controlsEnabled,
-            tabsAlpha = tabsAlpha,
-            indicatorAlpha = indicatorAlpha,
-            connectionProgress = connection,
+            alpha = tabsAlpha,
             onPressProgress = { navPressProgress = it },
             modifier = Modifier
                 .align(Alignment.BottomStart)
@@ -212,6 +210,7 @@ internal fun FloatingNavigation(
                     .width(navWidth)
                     .height(barHeight)
                     .graphicsLayer { alpha = returnAlpha }
+                    .prismalNavigationSurface(backdrop, density, isLightTheme, connection)
                     .clip(PrismalCapsule())
                     .clickable(enabled = searching, role = Role.Button, onClick = onReturnToTab)
                     .semantics { contentDescription = "Return to ${previousTab.label}" },
@@ -241,6 +240,7 @@ internal fun FloatingNavigation(
                 compact = compact,
                 onToggle = onMiniToggle,
                 onNext = onMiniNext,
+                onExpand = onMiniExpand,
                 pageBackdrop = pageBackdrop,
                 pageInput = pageInput,
                 liveBlur = liveBlur,

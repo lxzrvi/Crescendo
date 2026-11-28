@@ -26,6 +26,6 @@ internal fun StartupLoadingScreen(modifier: Modifier = Modifier) {
             .semantics { contentDescription = "Loading your music" },
         contentAlignment = Alignment.Center,
     ) {
-        CrescendoLoader(Modifier.size(88.dp), color = colors.onBackground)
+        CrescendoLoader(Modifier.size(88.dp), color = colors.onBackground, beamColor = colors.primary)
     }
 }

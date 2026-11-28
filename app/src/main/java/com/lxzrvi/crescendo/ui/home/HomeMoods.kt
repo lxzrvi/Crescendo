@@ -33,6 +33,8 @@ import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.State
+import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
@@ -89,12 +91,11 @@ internal fun HomeMoods(songs: List<Song>, onSongClick: (Song) -> Unit, animate: 
         val valid = songs.map { it.historyKey }.toSet()
         moods.associate { it.name to prefs.getStringSet(moodKey(it.name), emptySet()).orEmpty().count { id -> id in valid } }
     }
-    val phase = if (animate) {
+    val phase: State<Float> = if (animate) {
         val transition = rememberInfiniteTransition(label = "moodMotion")
-        val value by transition.animateFloat(0f, 1f,
+        transition.animateFloat(0f, 1f,
             infiniteRepeatable(tween(3600, easing = FastOutSlowInEasing), RepeatMode.Reverse), label = "moodFloat")
-        value
-    } else 0f
+    } else remember { mutableFloatStateOf(0f) }
 
     LazyRow(state = listState, contentPadding = PaddingValues(horizontal = ContentSidePadding),
         horizontalArrangement = Arrangement.spacedBy(9.dp)) {
@@ -187,29 +188,30 @@ internal fun HomeMoods(songs: List<Song>, onSongClick: (Song) -> Unit, animate: 
 }
 
 @Composable
-private fun MoodTile(mood: Mood, count: Int, phase: Float, onClick: () -> Unit) {
+private fun MoodTile(mood: Mood, count: Int, phase: State<Float>, onClick: () -> Unit) {
     val darkColor = lerp(mood.color, Color(0xFF16121D), 0.56f)
     Box(Modifier.width(142.dp).height(115.dp).clip(RoundedCornerShape(19.dp))
         .background(Brush.linearGradient(listOf(mood.color, darkColor)))
         .clickable(role = Role.Button, onClick = onClick)
         .semantics { contentDescription = "${mood.name} mood, $count songs" }) {
         Canvas(Modifier.fillMaxSize()) {
+            val frame = phase.value
             repeat(5) { i ->
-                val t = phase * 2f * PI.toFloat() + i * 1.3f
+                val t = frame * 2f * PI.toFloat() + i * 1.3f
                 val x = size.width * (0.46f + i * 0.13f)
                 val y = size.height * (0.16f + i * 0.075f) + sin(t) * size.height * 0.06f
                 drawCircle(Color.White.copy(alpha = 0.07f + i * 0.012f), radius = size.minDimension * (0.14f + i * 0.022f), center = Offset(x, y))
             }
             if (mood.name == "Energy" || mood.name == "Focus") repeat(5) { i ->
                 val x = size.width * (0.55f + i * 0.075f)
-                val height = size.height * (0.12f + (i % 3) * 0.06f + phase * 0.05f)
+                val height = size.height * (0.12f + (i % 3) * 0.06f + frame * 0.05f)
                 drawLine(Color.White.copy(alpha = 0.23f), Offset(x, size.height * 0.48f - height),
                     Offset(x, size.height * 0.48f + height), strokeWidth = 3.dp.toPx(), cap = StrokeCap.Round)
             }
         }
         Text(mood.symbol, color = Color.White.copy(alpha = 0.45f), fontSize = 40.sp,
             modifier = Modifier.align(Alignment.TopEnd).padding(end = 12.dp, top = 5.dp)
-                .graphicsLayer { translationY = phase * 5.dp.toPx(); rotationZ = (phase - 0.5f) * 8f })
+                .graphicsLayer { translationY = phase.value * 5.dp.toPx(); rotationZ = (phase.value - 0.5f) * 8f })
         Column(Modifier.align(Alignment.BottomStart).padding(12.dp)) {
             Text(mood.name, color = Color.White, fontSize = 17.sp, fontWeight = FontWeight.Bold,
                 maxLines = 1, overflow = TextOverflow.Ellipsis)

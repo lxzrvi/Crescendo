@@ -8,13 +8,11 @@ package com.lxzrvi.crescendo.ui.home
 import android.graphics.Bitmap
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
-import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.IntrinsicSize
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -47,20 +45,21 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.rememberUpdatedState
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.draw.blur
-import androidx.compose.ui.draw.drawWithContent
-import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.asImageBitmap
-import androidx.compose.ui.graphics.drawscope.clipRect
 import androidx.compose.ui.graphics.graphicsLayer
-import androidx.compose.ui.graphics.lerp
-import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.input.nestedscroll.NestedScrollConnection
+import androidx.compose.ui.input.nestedscroll.NestedScrollSource
+import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalLayoutDirection
 import androidx.compose.ui.res.painterResource
@@ -83,7 +82,7 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlin.random.Random
 
-internal val ContentSidePadding = 10.dp
+internal val ContentSidePadding = 20.dp
 
 @Composable
 internal fun HomeMusicPage(
@@ -97,15 +96,24 @@ internal fun HomeMusicPage(
     liveBlur: Boolean,
     onSongClick: (Song) -> Unit,
     onShuffle: () -> Unit,
+    onVerticalScroll: (Float) -> Unit,
     listState: LazyListState,
     quickState: LazyListState,
     moodsState: LazyListState,
     bottomPadding: Dp,
     modifier: Modifier = Modifier,
 ) {
-    val density = LocalDensity.current
     val scope = rememberCoroutineScope()
-    val statusInset = WindowInsets.statusBars.asPaddingValues().calculateTopPadding()
+    val latestVerticalScroll by rememberUpdatedState(onVerticalScroll)
+    val scrollConnection = remember {
+        object : NestedScrollConnection {
+            override fun onPostScroll(consumed: Offset, available: Offset, source: NestedScrollSource): Offset {
+                if (consumed.y != 0f) latestVerticalScroll(consumed.y)
+                return Offset.Zero
+            }
+        }
+    }
+    var showAll by rememberSaveable { mutableStateOf(false) }
     val songs = (library as? MusicLibraryState.Ready)?.songs.orEmpty()
     val topSongs = remember(songs, playCounts) {
         songs.sortedWith(
@@ -118,9 +126,8 @@ internal fun HomeMusicPage(
     var featuredIndex by remember(topIds) { androidx.compose.runtime.mutableIntStateOf(0) }
     val featured = topSongs.getOrNull(featuredIndex.coerceAtMost((topSongs.size - 1).coerceAtLeast(0)))
     val quickGroups = remember(songs) {
-        songs.shuffled(Random(songs.size.toLong() + 319L)).take(16).chunked(4)
+        songs.shuffled(Random(songs.size.toLong() + 319L)).chunked(4)
     }
-    val headerOffset = with(density) { (statusInset + 18.dp).roundToPx() }
 
     // Restart the slower timer after a manual swipe; never change an off-screen cover.
     LaunchedEffect(topIds, animateHero, featuredIndex) {
@@ -137,10 +144,11 @@ internal fun HomeMusicPage(
 
     BoxWithConstraints(modifier = modifier.fillMaxSize()) {
         val allRows = remember(songs) { songs.chunked(4) }
-        val quickColumnWidth = (maxWidth - ContentSidePadding * 2 - 32.dp).coerceIn(210.dp, 360.dp)
+        val shownRows = if (showAll) allRows else allRows.take(3)
+        val quickColumnWidth = (maxWidth - ContentSidePadding * 2 - 36.dp).coerceIn(190.dp, 360.dp)
         LazyColumn(
             state = listState,
-            modifier = Modifier.fillMaxSize(),
+            modifier = Modifier.fillMaxSize().nestedScroll(scrollConnection),
             contentPadding = PaddingValues(bottom = bottomPadding),
         ) {
             item(key = "home-hero") {
@@ -160,10 +168,14 @@ internal fun HomeMusicPage(
                     },
                     quickContent = {
                         if (library is MusicLibraryState.Ready && songs.isNotEmpty()) {
-                            SectionHeading("Quick Picks", onMore = {
-                                // Hero + Quick Picks are one continuous scene, then Moods, then All Songs.
-                                scope.launch { listState.animateScrollToItem(2, -headerOffset) }
-                            })
+                            SectionHeading(
+                                "Quick Picks",
+                                moreDescription = "Next quick picks",
+                                onMore = if (quickGroups.size > 1) {{
+                                    val next = (quickState.firstVisibleItemIndex + 1) % quickGroups.size
+                                    scope.launch { quickState.animateScrollToItem(next) }
+                                }} else null,
+                            )
                             LazyRow(
                                 state = quickState,
                                 contentPadding = PaddingValues(horizontal = ContentSidePadding),
@@ -200,8 +212,14 @@ internal fun HomeMusicPage(
                                 HomeMoods(songs = songs, onSongClick = onSongClick, animate = animateHero, listState = moodsState)
                             }
                         }
-                        item(key = "all-heading") { SectionHeading("All Songs") }
-                        items(allRows, key = { it.first().id }) { row ->
+                        item(key = "all-heading") {
+                            SectionHeading(
+                                "All Songs",
+                                note = if (songs.size == 1) "1 song" else "${songs.size} songs",
+                                onTitleClick = if (songs.size > 12) {{ showAll = !showAll }} else null,
+                            )
+                        }
+                        items(shownRows, key = { it.first().id }) { row ->
                             Row(
                                 modifier = Modifier.fillMaxWidth()
                                     .padding(start = ContentSidePadding, end = ContentSidePadding, bottom = 7.dp),
@@ -219,6 +237,21 @@ internal fun HomeMusicPage(
                                 repeat(4 - row.size) { Spacer(Modifier.weight(1f)) }
                             }
                         }
+                        if (songs.size > 12) {
+                            item(key = "all-toggle") {
+                                Box(
+                                    Modifier.fillMaxWidth().padding(horizontal = ContentSidePadding, vertical = 14.dp)
+                                        .heightIn(min = 46.dp).clip(RoundedCornerShape(24.dp))
+                                        .background(MaterialTheme.colorScheme.onBackground.copy(alpha = 0.07f))
+                                        .clickable(role = Role.Button) { showAll = !showAll },
+                                    contentAlignment = Alignment.Center,
+                                ) {
+                                    Text(if (showAll) "Show Less" else "Show All",
+                                        color = MaterialTheme.colorScheme.onBackground, fontSize = 13.sp,
+                                        fontWeight = FontWeight.SemiBold)
+                                }
+                            }
+                        }
                     }
                 }
             }
@@ -227,7 +260,13 @@ internal fun HomeMusicPage(
 }
 
 @Composable
-private fun SectionHeading(title: String, note: String? = null, onMore: (() -> Unit)? = null) {
+private fun SectionHeading(
+    title: String,
+    note: String? = null,
+    moreDescription: String = "More",
+    onMore: (() -> Unit)? = null,
+    onTitleClick: (() -> Unit)? = null,
+) {
     val colors = MaterialTheme.colorScheme
     val rtl = LocalLayoutDirection.current == LayoutDirection.Rtl
     Column(modifier = Modifier.padding(start = ContentSidePadding, end = ContentSidePadding, top = 20.dp, bottom = 10.dp)) {
@@ -239,41 +278,35 @@ private fun SectionHeading(title: String, note: String? = null, onMore: (() -> U
                 lineHeight = 25.sp,
                 letterSpacing = (-0.25).sp,
                 fontWeight = FontWeight.SemiBold,
-                modifier = Modifier.weight(1f),
+                modifier = Modifier.weight(1f).then(
+                    if (onTitleClick != null) Modifier.clip(RoundedCornerShape(8.dp))
+                        .clickable(role = Role.Button, onClick = onTitleClick)
+                        .semantics { contentDescription = "$title, expand or collapse" }
+                    else Modifier,
+                ),
             )
             if (onMore != null) {
                 Row(
-                    modifier = Modifier
-                        .heightIn(min = 40.dp)
-                        .clip(RoundedCornerShape(12.dp))
+                    modifier = Modifier.heightIn(min = 40.dp).clip(RoundedCornerShape(12.dp))
                         .clickable(role = Role.Button, onClick = onMore)
-                        .semantics { contentDescription = "Show all songs" }
+                        .semantics { contentDescription = moreDescription }
                         .padding(start = 8.dp, end = 2.dp),
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
                     Text("More", color = colors.onBackground.copy(alpha = 0.68f), fontSize = 14.sp)
                     Spacer(Modifier.width(5.dp))
-                    Icon(
-                        painter = painterResource(R.drawable.ic_onboarding_chevron),
-                        contentDescription = null,
+                    Icon(painter = painterResource(R.drawable.ic_onboarding_chevron), contentDescription = null,
                         tint = colors.onBackground.copy(alpha = 0.68f),
-                        modifier = Modifier.size(12.dp).graphicsLayer { scaleX = if (rtl) -1f else 1f },
-                    )
+                        modifier = Modifier.size(12.dp).graphicsLayer { scaleX = if (rtl) -1f else 1f })
                 }
             }
         }
-        if (note != null) {
-            Text(
-                text = note,
-                color = colors.onBackground.copy(alpha = 0.58f),
-                fontSize = 12.sp,
-                lineHeight = 15.sp,
-                modifier = Modifier.padding(top = 2.dp),
-            )
-        }
+        if (note != null) Text(note, color = colors.onBackground.copy(alpha = 0.52f),
+            fontSize = 12.sp, lineHeight = 15.sp, modifier = Modifier.padding(top = 2.dp))
     }
 }
 
+/** Square artwork, with all metadata underneath. Covers deliberately have no border. */
 @Composable
 private fun SongGridCard(
     song: Song,
@@ -282,35 +315,37 @@ private fun SongGridCard(
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
-    val visual by rememberArtworkVisual(song, artwork, 128.dp)
-    Box(
-        modifier = modifier.aspectRatio(0.73f).clip(RoundedCornerShape(10.dp))
+    val colors = MaterialTheme.colorScheme
+    Column(
+        modifier = modifier.clip(RoundedCornerShape(10.dp))
             .clickable(role = Role.Button, onClick = onClick)
-            .semantics { contentDescription = "${song.title}, ${song.artist}" },
+            .semantics { contentDescription = listOfNotNull(song.title, song.artist, formatSongDuration(song.durationMs)).joinToString(", ") },
     ) {
-        // Cover fills the entire card; the old colored border is intentionally gone.
-        ArtworkImage(visual.bitmap, Modifier.fillMaxSize())
-        // Redraw the same cover blurred only beneath the original title/artist position.
-        Box(Modifier.matchParentSize().drawWithContent {
-            clipRect(top = (size.height - 44.dp.toPx()).coerceAtLeast(0f)) {
-                this@drawWithContent.drawContent()
-            }
-        }) {
-            ArtworkImage(visual.bitmap, Modifier.fillMaxSize().blur(12.dp))
+        Box(Modifier.fillMaxWidth().aspectRatio(1f).clip(RoundedCornerShape(9.dp))) {
+            // Grid covers need no palette extraction; load only their sized bitmap.
+            SongArtwork(song, artwork, Modifier.fillMaxSize(), 120.dp)
+            if (playing) PlayingBadge(Modifier.align(Alignment.TopEnd).padding(4.dp))
         }
-        Box(Modifier.matchParentSize().background(Brush.verticalGradient(
-            0.56f to Color.Transparent, 0.77f to Color.Black.copy(alpha = 0.20f),
-            1f to Color.Black.copy(alpha = 0.82f),
-        )))
-        Column(Modifier.align(Alignment.BottomStart).fillMaxWidth().padding(start = 5.dp, end = 5.dp, bottom = 5.dp)) {
-            Text(song.title, color = Color.White, fontSize = 12.sp, lineHeight = 14.sp,
-                fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
-            Spacer(Modifier.height(1.dp))
-            Text(song.artist, color = Color.White.copy(alpha = 0.76f), fontSize = 11.sp,
-                lineHeight = 13.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+        Text(song.title, color = if (playing) colors.primary else colors.onBackground,
+            fontSize = 12.sp, lineHeight = 15.sp, fontWeight = FontWeight.SemiBold,
+            maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.padding(top = 6.dp))
+        Text(song.artist, color = colors.onBackground.copy(alpha = 0.60f), fontSize = 11.sp,
+            lineHeight = 14.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+        formatSongDuration(song.durationMs)?.let { duration ->
+            Text(duration, color = colors.onBackground.copy(alpha = 0.43f), fontSize = 10.sp,
+                lineHeight = 13.sp, maxLines = 1)
         }
-        if (playing) PlayingBadge(Modifier.align(Alignment.TopEnd).padding(4.dp))
     }
+}
+
+internal fun formatSongDuration(durationMs: Long): String? {
+    if (durationMs <= 0L) return null
+    val seconds = durationMs / 1000
+    val hours = seconds / 3600
+    val minutes = (seconds / 60) % 60
+    val remainder = (seconds % 60).toString().padStart(2, '0')
+    return if (hours > 0) "$hours:${minutes.toString().padStart(2, '0')}:$remainder"
+    else "${seconds / 60}:$remainder"
 }
 
 @Composable

@@ -1,5 +1,8 @@
 package com.lxzrvi.crescendo.ui.home
 
+import androidx.compose.animation.core.Animatable
+import androidx.compose.animation.core.LinearEasing
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -22,6 +25,7 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -59,6 +63,7 @@ import dev.chrisbanes.haze.HazePerformanceMode
 import dev.chrisbanes.haze.blur.HazeBlurStyle
 import dev.chrisbanes.haze.blur.HazeColorEffect
 import dev.chrisbanes.haze.blur.hazeBlur
+import kotlin.math.roundToInt
 
 /** A slimmer live-glass player morphs into a circular artwork bubble while scrolling. */
 @Composable
@@ -72,6 +77,7 @@ internal fun MiniPlayer(
     compact: Float,
     onToggle: () -> Unit,
     onNext: () -> Unit,
+    onExpand: () -> Unit,
     pageBackdrop: PrismalBackdrop,
     pageInput: HazeInput.Sources,
     liveBlur: Boolean,
@@ -122,6 +128,16 @@ internal fun MiniPlayer(
         ).clip(shape)
     }
     val trackProgress = progress.coerceIn(0f, 1f)
+    val rotation = remember(song.id) { Animatable(0f) }
+    LaunchedEffect(playing, fraction > 0.1f, song.id) {
+        if (playing && fraction > 0.1f) {
+            while (true) {
+                val remaining = (360f - rotation.value).coerceAtLeast(0f)
+                rotation.animateTo(360f, tween((18_000f * remaining / 360f).roundToInt().coerceAtLeast(1), easing = LinearEasing))
+                rotation.snapTo(0f)
+            }
+        }
+    }
 
     Box(
         modifier = modifier.fillMaxWidth().height(56.dp).then(glass)
@@ -175,11 +191,12 @@ internal fun MiniPlayer(
         if (bubbleAlpha > 0.01f) {
             Box(
                 modifier = Modifier.size(52.dp).graphicsLayer { alpha = bubbleAlpha }
-                    .clip(CircleShape).clickable(role = Role.Button, onClick = onToggle)
-                    .semantics { contentDescription = "${song.title}. ${if (playing) "Pause" else "Play"}" },
+                    .clip(CircleShape).clickable(role = Role.Button, onClick = onExpand)
+                    .semantics { contentDescription = "Expand mini-player, ${song.title}" },
                 contentAlignment = Alignment.Center,
             ) {
-                SongArtwork(song, artwork, Modifier.size(42.dp).clip(CircleShape), 42.dp)
+                SongArtwork(song, artwork, Modifier.size(42.dp)
+                    .graphicsLayer { rotationZ = rotation.value }.clip(CircleShape), 42.dp)
                 Canvas(Modifier.fillMaxSize()) {
                     val stroke = 2.dp.toPx()
                     val inset = stroke / 2f + 1.dp.toPx()
