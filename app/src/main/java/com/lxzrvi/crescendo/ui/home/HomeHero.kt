@@ -3,14 +3,10 @@
 package com.lxzrvi.crescendo.ui.home
 
 import android.graphics.Bitmap
+import android.os.SystemClock
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.FastOutSlowInEasing
-import androidx.compose.animation.core.LinearEasing
-import androidx.compose.animation.core.RepeatMode
-import androidx.compose.animation.core.animateFloat
-import androidx.compose.animation.core.infiniteRepeatable
-import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
@@ -59,6 +55,7 @@ import androidx.compose.ui.graphics.CompositingStrategy
 import androidx.compose.ui.graphics.drawscope.translate
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.luminance
+import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalLayoutDirection
@@ -99,7 +96,7 @@ private const val HERO_FADE_MS = 1350
 
 private data class HeroCover(val song: Song, val bitmap: Bitmap?, val edges: ArtworkEdgePalette?)
 
-/** The cover, its edge-derived ambience and text change together, never via an empty placeholder. */
+/** The cover, its artwork-derived ambience and text change together without an empty placeholder. */
 @Composable
 internal fun HomeHero(
     song: Song?,
@@ -133,20 +130,25 @@ internal fun HomeHero(
         }
     }
     val edges = cover?.edges
-    val edgeMain = edges?.swatches?.getOrNull(0)?.let { Color(it) } ?: colors.primary
-    val edgeSecond = edges?.swatches?.getOrNull(1)?.let { Color(it) } ?: edgeMain
-    val edgeLower = edges?.bottom?.let { Color(it) } ?: edgeSecond
+    val mood = remember(edges, colors.primary, dark) {
+        heroColors(edges?.swatches.orEmpty(), edges?.bottom, colors.primary.toArgb(), dark)
+    }
     val colorSpec = tween<Color>(HERO_FADE_MS, easing = FastOutSlowInEasing)
-    val ambientMain by animateColorAsState(edgeMain, colorSpec, label = "heroEdgeMain")
-    val ambientSecond by animateColorAsState(edgeSecond, colorSpec, label = "heroEdgeSecond")
-    val ambientLower by animateColorAsState(edgeLower, colorSpec, label = "heroEdgeLower")
-    // Radial brushes are soft by construction and drift during drawing, not recomposition.
-    val phase: State<Float> = if (animate) {
-        rememberInfiniteTransition(label = "homeAmbient").animateFloat(
-            0f, 1f, infiniteRepeatable(tween(24000, easing = LinearEasing), RepeatMode.Restart),
-            label = "ambientDrift",
-        )
-    } else remember { mutableFloatStateOf(0f) }
+    // Read background colors in drawing, and the wordmark color in its own
+    // small composable, instead of recomposing the whole hero on every frame.
+    val ambientMain = animateColorAsState(Color(mood.main), colorSpec, label = "heroCoverMain")
+    val ambientSecond = animateColorAsState(Color(mood.second), colorSpec, label = "heroCoverSecond")
+    val ambientLower = animateColorAsState(Color(mood.lower), colorSpec, label = "heroCoverLower")
+    val titleColor = animateColorAsState(Color(mood.title), colorSpec, label = "heroCoverTitle")
+    val phase = remember { mutableFloatStateOf(0f) }
+    LaunchedEffect(animate) {
+        if (!animate) phase.floatValue = 0f else while (true) {
+            // This very slow drift moves less than a pixel per tick; sampling it
+            // at 12.5 Hz avoids constantly recapturing the whole glass backdrop.
+            phase.floatValue = (SystemClock.elapsedRealtime() % 24_000L) / 24_000f
+            delay(80L)
+        }
+    }
 
     val heroHaze = rememberHazeState()
     val heroInput = remember(heroHaze) {
@@ -190,7 +192,7 @@ internal fun HomeHero(
             Box(
                 Modifier.matchParentSize()
                     .then(if (liveBlur) Modifier.hazeSource(state = heroHaze, zIndex = 0f, key = HERO_SOURCE_KEY) else Modifier)
-                    .ambientCoverGlow(ambientMain, ambientSecond, ambientLower, colors.background, dark, phase),
+                    .ambientCoverGlow(ambientMain, ambientSecond, ambientLower, phase),
             ) {
                 Box(
                     Modifier.align(Alignment.TopEnd)
@@ -239,10 +241,9 @@ internal fun HomeHero(
             }
             Column(Modifier.fillMaxWidth()) {
                 Box(Modifier.fillMaxWidth().height(heroHeight)) {
-                    Text(
-                        "Crescendo", fontFamily = BorelFamily, fontStyle = FontStyle.Normal,
-                        color = colors.onBackground, fontSize = 27.sp, lineHeight = 39.sp,
-                        maxLines = 1, modifier = Modifier.align(Alignment.TopStart)
+                    HeroWordmark(
+                        color = titleColor,
+                        modifier = Modifier.align(Alignment.TopStart)
                             .padding(start = ContentSidePadding, top = status + 6.dp, end = 58.dp),
                     )
                     Column(
@@ -270,7 +271,7 @@ internal fun HomeHero(
                         ) { visual ->
                             visual?.song?.let { featured ->
                                 Column {
-                                    Text("TOP PICK", color = colors.primary, fontSize = 10.sp,
+                                    Text("TOP PICK", color = titleColor.value, fontSize = 10.sp,
                                         letterSpacing = 1.3.sp, fontWeight = FontWeight.Bold)
                                     Spacer(Modifier.height(7.dp))
                                     Text(featured.title, color = colors.onBackground, fontSize = 19.sp,
@@ -323,6 +324,15 @@ internal fun HomeHero(
             }
         }
     }
+}
+
+@Composable
+private fun HeroWordmark(color: State<Color>, modifier: Modifier = Modifier) {
+    Text(
+        "Crescendo", fontFamily = BorelFamily, fontStyle = FontStyle.Normal,
+        color = color.value, fontSize = 27.sp, lineHeight = 39.sp,
+        maxLines = 1, modifier = modifier,
+    )
 }
 
 /** Blurred live pixels with a subtle tint: no lens, refraction, specular effect or border. */
@@ -406,41 +416,42 @@ private fun Modifier.featheredArtwork(edges: ArtworkEdgePalette?): Modifier =
         }
     }
 
-/** Three oversized, very soft color fields continue through the Quick Picks section. */
+/** Rich at the top, then fully transparent by the All Songs heading's bottom. */
 private fun Modifier.ambientCoverGlow(
-    main: Color,
-    second: Color,
-    lower: Color,
-    base: Color,
-    dark: Boolean,
+    main: State<Color>,
+    second: State<Color>,
+    lower: State<Color>,
     phase: State<Float>,
 ): Modifier = drawWithCache {
-    val span = maxOf(size.width, size.height * 0.55f)
+    val first = main.value
+    val next = second.value
+    val bottom = lower.value
+    // The underlying app background (including a user photo) is revealed naturally.
+    // At the bottom every field is exactly transparent, so the next lazy item cannot
+    // introduce a horizontal color cut.
+    val solidToClear = Brush.verticalGradient(
+        0f to first, 0.31f to first, 0.55f to first.copy(alpha = 0.82f),
+        0.78f to first.copy(alpha = 0.36f), 1f to first.copy(alpha = 0f),
+        endY = size.height.coerceAtLeast(1f),
+    )
     fun glow(color: Color, alpha: Float, center: Offset, radius: Float): Brush = Brush.radialGradient(
         0f to color.copy(alpha = alpha),
-        0.27f to color.copy(alpha = alpha * 0.75f),
-        0.64f to color.copy(alpha = alpha * 0.24f),
+        0.30f to color.copy(alpha = alpha * 0.84f),
+        0.68f to color.copy(alpha = alpha * 0.30f),
         1f to color.copy(alpha = 0f),
         center = center, radius = radius.coerceAtLeast(1f),
     )
-    val mainGlow = glow(main, if (dark) 0.42f else 0.23f,
-        Offset(size.width * 0.80f, size.height * 0.27f), span * 1.08f)
-    val leftGlow = glow(second, if (dark) 0.28f else 0.18f,
-        Offset(size.width * 0.12f, size.height * 0.62f), span * 1.12f)
-    val lowGlow = glow(lower, if (dark) 0.26f else 0.16f,
-        Offset(size.width * 0.88f, size.height * 0.80f), span * 0.95f)
-    val lowerFade = Brush.verticalGradient(0f to base.copy(alpha = 0f),
-        0.78f to base.copy(alpha = 0f), 1f to base.copy(alpha = 0.96f))
+    val secondGlow = glow(next, 0.96f, Offset(size.width * 0.88f, size.height * 0.12f), size.height * 0.65f)
+    val lowerGlow = glow(bottom, 0.55f, Offset(size.width * 0.26f, size.height * 0.43f), size.height * 0.48f)
+    val driftSpan = minOf(size.width, size.height)
     onDrawBehind {
-        drawRect(base.copy(alpha = 0.96f))
+        drawRect(solidToClear)
         val drift = sin(phase.value * 2f * PI.toFloat())
-        translate(left = drift * size.width * 0.025f, top = drift * size.width * 0.018f) {
-            drawRect(mainGlow)
+        translate(left = drift * driftSpan * 0.018f, top = drift * driftSpan * 0.012f) {
+            drawRect(secondGlow)
         }
-        translate(left = -drift * size.width * 0.025f, top = drift * size.width * 0.015f) {
-            drawRect(leftGlow)
-            drawRect(lowGlow)
+        translate(left = -drift * driftSpan * 0.018f, top = -drift * driftSpan * 0.012f) {
+            drawRect(lowerGlow)
         }
-        drawRect(lowerFade)
     }
 }

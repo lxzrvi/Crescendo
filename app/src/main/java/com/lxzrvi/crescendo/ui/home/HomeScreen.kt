@@ -28,13 +28,13 @@ import androidx.compose.foundation.layout.isImeVisible
 import androidx.compose.foundation.layout.navigationBars
 import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateOf
@@ -79,6 +79,9 @@ import kotlin.math.roundToInt
 import kotlin.random.Random
 
 internal const val PAGE_SOURCE_KEY = "page"
+
+// Scroll deltas are transient gesture bookkeeping, not UI state.
+private class HomeScrollDistance(var down: Float = 0f, var up: Float = 0f)
 
 internal enum class Destination(val label: String, @param:DrawableRes val icon: Int) {
     Home("Home", R.drawable.ic_nav_home),
@@ -153,7 +156,9 @@ private fun HomeScreenContent(
         }
     }
     val currentSong = playback.currentSong
-    val progress by produceState(0f, currentSong?.id, playback.isPlaying) {
+    // Keep fast playback ticks out of the page and navigation composition;
+    // only the mini-player's progress drawing reads this state.
+    val progress = produceState(0f, currentSong?.id, playback.isPlaying) {
         if (currentSong == null) value = 0f else while (true) {
             value = playback.progressFraction()
             delay(if (playback.isPlaying) 350 else 1_000)
@@ -237,7 +242,7 @@ private fun HomeScreenContent(
     val wallpaperBackdrop = rememberPrismalGlassLayer()
     val initialFade = remember { Animatable(0f) }
     val homeState = rememberLazyListState()
-    val quickState = rememberLazyListState()
+    val quickState = rememberPagerState(pageCount = { QUICK_PICK_PAGES })
     val playlistState = rememberLazyListState()
     val libraryState = rememberLazyListState()
     val libraryDetailState = rememberLazyListState()
@@ -252,7 +257,7 @@ private fun HomeScreenContent(
     }
     LaunchedEffect(Unit) { initialFade.animateTo(1f, tween(500, easing = FastOutSlowInEasing)) }
     LaunchedEffect(query) { searchState.scrollToItem(0) }
-    LaunchedEffect(sessionSeed) { quickState.scrollToItem(0) }
+    LaunchedEffect(sessionSeed) { quickState.scrollToPage(0) }
     // Match the reference's persistent dock: enough downward Home scroll collapses;
     // upward movement, reaching the top, tapping the disc, or leaving Home expands it.
     val density = LocalDensity.current
@@ -260,14 +265,13 @@ private fun HomeScreenContent(
     val deepThreshold = with(density) { 120.dp.toPx() }
     val topThreshold = with(density) { 80.dp.toPx() }
     val upwardThreshold = with(density) { 4.dp.toPx() }
-    var downDistance by remember { mutableFloatStateOf(0f) }
-    var upDistance by remember { mutableFloatStateOf(0f) }
+    val scrollDistance = remember { HomeScrollDistance() }
     var miniDocked by remember { mutableStateOf(false) }
     LaunchedEffect(destination, currentSong?.id) {
         if (destination != Destination.Home || currentSong == null) {
             miniDocked = false
-            downDistance = 0f
-            upDistance = 0f
+            scrollDistance.down = 0f
+            scrollDistance.up = 0f
         }
     }
     fun onHomeScroll(consumedY: Float) {
@@ -275,16 +279,16 @@ private fun HomeScreenContent(
         val firstItem = homeState.firstVisibleItemIndex == 0
         val offset = homeState.firstVisibleItemScrollOffset.toFloat()
         when {
-            firstItem && offset < topThreshold -> { miniDocked = false; downDistance = 0f; upDistance = 0f }
+            firstItem && offset < topThreshold -> { miniDocked = false; scrollDistance.down = 0f; scrollDistance.up = 0f }
             consumedY > 0f -> {
                 // Accumulate small high-refresh deltas too, so a gentle upward scroll expands.
-                upDistance += consumedY
-                if (upDistance > upwardThreshold) { miniDocked = false; downDistance = 0f }
+                scrollDistance.up += consumedY
+                if (scrollDistance.up > upwardThreshold) { miniDocked = false; scrollDistance.down = 0f }
             }
             consumedY < 0f -> {
-                upDistance = 0f
-                downDistance = (downDistance - consumedY).coerceAtMost(deepThreshold * 2f)
-                if (downDistance > downThreshold && (!firstItem || offset > deepThreshold)) miniDocked = true
+                scrollDistance.up = 0f
+                scrollDistance.down = (scrollDistance.down - consumedY).coerceAtMost(deepThreshold * 2f)
+                if (scrollDistance.down > downThreshold && (!firstItem || offset > deepThreshold)) miniDocked = true
             }
         }
     }
@@ -318,7 +322,7 @@ private fun HomeScreenContent(
             .then(if (showProfile) Modifier.clearAndSetSemantics { } else Modifier)) {
             Box(
                 modifier = Modifier.fillMaxSize()
-                    .hazeSource(state = hazeState, zIndex = 0f, key = PAGE_SOURCE_KEY)
+                    .then(if (appearance.liveBlur) Modifier.hazeSource(state = hazeState, zIndex = 0f, key = PAGE_SOURCE_KEY) else Modifier)
                     .then(if (appearance.liveBlur) Modifier.prismalGlassLayer(pageBackdrop) else Modifier)
                     .background(colors.background),
             ) {
@@ -391,7 +395,7 @@ private fun HomeScreenContent(
                 onMiniNext = { playback.next((library as? MusicLibraryState.Ready)?.songs.orEmpty()) },
                 onMiniExpand = {
                     if (destination == Destination.Search && imeVisible) { keyboard?.hide(); focusManager.clearFocus(force = true) }
-                    miniDocked = false; downDistance = 0f; upDistance = 0f
+                    miniDocked = false; scrollDistance.down = 0f; scrollDistance.up = 0f
                 },
             )
         }

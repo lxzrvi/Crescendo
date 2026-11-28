@@ -131,6 +131,9 @@ jobs:
         with:
           cache-read-only: true
 
+      - name: Verify shared launcher and profile geometry
+        run: python3 .github/scripts/check-logo-shape.py
+
       # Release host tests reuse release compilation, keeping checks alongside assembly.
       - name: Analyze fatal release lint and run unit tests
         run: ./gradlew lintVitalRelease testReleaseUnitTest --no-daemon --parallel --build-cache

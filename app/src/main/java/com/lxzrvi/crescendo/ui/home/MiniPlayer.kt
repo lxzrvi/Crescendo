@@ -26,6 +26,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.State
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -73,7 +74,7 @@ internal fun MiniPlayer(
     playing: Boolean,
     loading: Boolean,
     error: String?,
-    progress: Float,
+    progress: State<Float>,
     compact: Float,
     onToggle: () -> Unit,
     onNext: () -> Unit,
@@ -127,7 +128,6 @@ internal fun MiniPlayer(
             onDrawSurface = { drawRect(tint) },
         ).clip(shape)
     }
-    val trackProgress = progress.coerceIn(0f, 1f)
     val rotation = remember(song.id) { Animatable(0f) }
     LaunchedEffect(playing, fraction > 0.1f, song.id) {
         if (playing && fraction > 0.1f) {
@@ -144,6 +144,8 @@ internal fun MiniPlayer(
             .border(0.8.dp, borderBrush, shape)
             .drawWithContent {
                 drawContent()
+                // Reading playback position in draw avoids recomposing the nav and pages.
+                val trackProgress = progress.value.coerceIn(0f, 1f)
                 // The playback progress hugs the upper edge of the expanded glass.
                 if (fraction < 0.8f && trackProgress > 0f) {
                     val inset = radius.toPx()
@@ -198,6 +200,7 @@ internal fun MiniPlayer(
                 SongArtwork(song, artwork, Modifier.size(42.dp)
                     .graphicsLayer { rotationZ = rotation.value }.clip(CircleShape), 42.dp)
                 Canvas(Modifier.fillMaxSize()) {
+                    val trackProgress = progress.value.coerceIn(0f, 1f)
                     val stroke = 2.dp.toPx()
                     val inset = stroke / 2f + 1.dp.toPx()
                     val arcSize = Size(size.width - inset * 2f, size.height - inset * 2f)

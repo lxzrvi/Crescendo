@@ -16,7 +16,7 @@ import kotlinx.coroutines.sync.Semaphore
 import kotlinx.coroutines.sync.withPermit
 import kotlinx.coroutines.withContext
 
-/** Colors from the visible square cover's outer bands, including each side's average. */
+/** Prominent colors from the visible square cover and each outer edge's average. */
 internal data class ArtworkEdgePalette(
     val swatches: List<Int>,
     val top: Int,
@@ -37,26 +37,34 @@ internal class AlbumArtworkLoader(context: Context) {
         override fun sizeOf(key: String, value: Bitmap): Int = (value.byteCount / 1024).coerceAtLeast(1)
     }
 
-    suspend fun load(song: Song, requestedPx: Int): Bitmap? = withContext(Dispatchers.IO) {
-        val size = when {
-            requestedPx <= 128 -> 128
-            requestedPx <= 256 -> 256
-            else -> 512
-        }
-        val key = "${song.id}:${song.dateModified}:$size"
-        cache.get(key)?.let { return@withContext it }
-        if (missing.contains(key)) return@withContext null
+    private fun sizeBucket(requestedPx: Int): Int = when {
+        requestedPx <= 128 -> 128
+        requestedPx <= 256 -> 256
+        else -> 512
+    }
 
-        pendingLimit.withPermit {
-            cache.get(key)?.let { return@withPermit it }
-            if (missing.contains(key)) return@withPermit null
-            val bitmap = thumbnail(song, size) ?: albumArt(song, size) ?: embeddedArt(song, size)
-            if (bitmap == null) missing.add(key) else cache.put(key, bitmap)
-            bitmap
+    private fun cacheKey(song: Song, size: Int) = "${song.id}:${song.dateModified}:$size"
+
+    /** A cache hit is safe on the caller thread and avoids a dispatcher hop per visible row. */
+    fun cached(song: Song, requestedPx: Int): Bitmap? = cache.get(cacheKey(song, sizeBucket(requestedPx)))
+
+    suspend fun load(song: Song, requestedPx: Int): Bitmap? {
+        val size = sizeBucket(requestedPx)
+        val key = cacheKey(song, size)
+        cache.get(key)?.let { return it }
+        if (missing.contains(key)) return null
+        return withContext(Dispatchers.IO) {
+            pendingLimit.withPermit {
+                cache.get(key)?.let { return@withPermit it }
+                if (missing.contains(key)) return@withPermit null
+                val bitmap = thumbnail(song, size) ?: albumArt(song, size) ?: embeddedArt(song, size)
+                if (bitmap == null) missing.add(key) else cache.put(key, bitmap)
+                bitmap
+            }
         }
     }
 
-    /** Sample the actual edges of the square crop shown by the hero, off the UI thread. */
+    /** Sample the actual square crop and its edges off the UI thread, once per cover. */
     suspend fun edgePalette(song: Song, bitmap: Bitmap): ArtworkEdgePalette? = withContext(Dispatchers.Default) {
         val key = "${song.id}:${song.dateModified}"
         edgeColors.get(key)?.let { return@withContext it }
@@ -72,6 +80,11 @@ internal class AlbumArtworkLoader(context: Context) {
                 val left = (source.width - edge) / 2
                 val top = (source.height - edge) / 2
                 val pixels = IntArray(64 * 64)
+                // Full-cover sampling finds distinct prominent colors even when the
+                // outer border is almost entirely black, white or transparent.
+                for (y in 0..63) for (x in 0..63) {
+                    pixels[y * 64 + x] = source.getPixel(left + x * (edge - 1) / 63, top + y * (edge - 1) / 63)
+                }
                 val red = LongArray(4)
                 val green = LongArray(4)
                 val blue = LongArray(4)
@@ -83,17 +96,18 @@ internal class AlbumArtworkLoader(context: Context) {
                     val x = left + when (side) { 0 -> p; 1 -> edge - 1 - d; 2 -> p; else -> d }
                     val y = top + when (side) { 0 -> d; 1 -> p; 2 -> edge - 1 - d; else -> p }
                     val pixel = source.getPixel(x, y)
-                    pixels[(side * 16 + depth) * 64 + along] = pixel
                     val weight = android.graphics.Color.alpha(pixel).toLong()
                     alpha[side] += weight
                     red[side] += android.graphics.Color.red(pixel) * weight
                     green[side] += android.graphics.Color.green(pixel) * weight
                     blue[side] += android.graphics.Color.blue(pixel) * weight
                 }
-                val bands = Bitmap.createBitmap(pixels, 64, 64, Bitmap.Config.ARGB_8888)
-                sample = bands
-                val swatches = Palette.from(bands).clearFilters().maximumColorCount(16).generate()
-                    .swatches.sortedByDescending { it.population }.map { it.rgb }.distinct().take(5)
+                val coverSample = Bitmap.createBitmap(pixels, 64, 64, Bitmap.Config.ARGB_8888)
+                sample = coverSample
+                val swatches = selectProminentCoverColors(
+                    Palette.from(coverSample).clearFilters().maximumColorCount(24).generate().swatches
+                        .map { CoverColorCandidate(it.rgb, it.population) },
+                )
                 if (swatches.isEmpty()) null else {
                     fun average(side: Int): Int = if (alpha[side] == 0L) swatches.first() else android.graphics.Color.rgb(
                         (red[side] / alpha[side]).toInt(), (green[side] / alpha[side]).toInt(),

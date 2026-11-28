@@ -2,6 +2,8 @@ package com.lxzrvi.crescendo.ui.home
 
 import android.content.Intent
 import android.graphics.Bitmap
+import android.graphics.Matrix
+import android.graphics.Path as AndroidPath
 import android.net.Uri
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
@@ -46,12 +48,12 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.geometry.Offset
-import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.geometry.Size
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Outline
-import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.Shape
+import androidx.compose.ui.graphics.asComposePath
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.drawscope.DrawScope
 import androidx.compose.ui.graphics.graphicsLayer
@@ -70,6 +72,7 @@ import androidx.compose.ui.unit.Density
 import androidx.compose.ui.unit.LayoutDirection
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.core.graphics.PathParser
 import com.lxzrvi.crescendo.R
 import com.styropyr0.prismal.PrismalBackdrop
 import com.styropyr0.prismal.drawPlainPrismalGlass
@@ -78,9 +81,12 @@ import com.styropyr0.prismal.sources.rememberPrismalCanvasSource
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
-import kotlin.math.hypot
+import kotlin.math.sqrt
 
-/** A single connected C silhouette: Edit, avatar, Settings and Feedback. */
+private const val PROFILE_STEP_DP = 82f
+private val profileLobeDiameter = (270f * PROFILE_STEP_DP / (300f * sqrt(2f))).dp
+
+/** A single connected launcher-mark silhouette: Edit, avatar, Settings and Feedback. */
 @Composable
 internal fun ProfileMenu(
     profileName: String,
@@ -97,6 +103,11 @@ internal fun ProfileMenu(
     val rtl = LocalLayoutDirection.current == LayoutDirection.Rtl
     val density = LocalDensity.current
     val scope = rememberCoroutineScope()
+    // The resource is also used by ic_launcher_foreground.xml: no traced or
+    // approximated geometry can drift away from the real app icon.
+    val markPath = remember(context) {
+        requireNotNull(PathParser.createPathFromPathData(context.getString(R.string.launcher_mark_path)))
+    }
     val prefs = remember(context) { context.getSharedPreferences("profile", android.content.Context.MODE_PRIVATE) }
     val store = remember(context) { BackgroundPhotoStore(context, "crescendo_profile_photo") }
     var photoVersion by remember(prefs) { mutableLongStateOf(prefs.getLong("photo_version", 0L)) }
@@ -118,26 +129,18 @@ internal fun ProfileMenu(
     val solidDraw: DrawScope.() -> Unit = remember(solid) { { drawRect(solid) } }
     val solidBackdrop = rememberPrismalCanvasSource(solidDraw)
     val backdrop = if (liveBlur) pageBackdrop else solidBackdrop
-    // One uniform surface makes the links and four circular lobes a single shape.
-    val surface = if (dark) Color(0xFF29292E).copy(alpha = 0.94f) else Color(0xFF111114).copy(alpha = 0.94f)
 
     val transition = updateTransition(expanded, label = "profileMenu")
     val scrim by transition.animateFloat(
-        transitionSpec = { tween(if (targetState) 260 else 220) }, label = "profileScrim",
+        transitionSpec = { tween(260) }, label = "profileScrim",
     ) { if (it) 1f else 0f }
-    val edit by transition.animateFloat(
-        transitionSpec = { tween(if (targetState) 390 else 240, delayMillis = if (targetState) 0 else 35, easing = FastOutSlowInEasing) },
-        label = "profileEdit",
+    // The actual mark scales from the avatar anchor, so the three actions and
+    // the concave liquid links move together and arrive at exact logo geometry.
+    val morph by transition.animateFloat(
+        transitionSpec = { tween(if (targetState) 460 else 340, easing = FastOutSlowInEasing) },
+        label = "profileMarkMorph",
     ) { if (it) 1f else 0f }
-    val settings by transition.animateFloat(
-        transitionSpec = { tween(if (targetState) 430 else 240, delayMillis = if (targetState) 65 else 15, easing = FastOutSlowInEasing) },
-        label = "profileSettings",
-    ) { if (it) 1f else 0f }
-    val feedback by transition.animateFloat(
-        transitionSpec = { tween(if (targetState) 430 else 220, delayMillis = if (targetState) 115 else 0, easing = FastOutSlowInEasing) },
-        label = "profileFeedback",
-    ) { if (it) 1f else 0f }
-    val visible = expanded || scrim > 0.001f || edit > 0.001f || settings > 0.001f || feedback > 0.001f
+    val visible = expanded || scrim > 0.001f || morph > 0.001f
     BackHandler(enabled = expanded) { onExpandedChange(false) }
 
     Box(Modifier.fillMaxSize()) {
@@ -154,24 +157,32 @@ internal fun ProfileMenu(
             Modifier.align(Alignment.TopEnd).statusBarsPadding()
                 .padding(end = 10.dp).size(150.dp),
         ) {
-            Box(Modifier.fillMaxSize().drawPlainPrismalGlass(
-                backdrop = backdrop,
-                shape = { ProfileMenuShape(edit, settings, feedback, scrim, rtl) },
-                effects = { applyPrismalGlassEffects(density = density, adaptiveLuminance = false, luminance = 0.5f,
-                    blurRadiusPx = with(density) { 7.dp.toPx() }, refractionHeightPx = 0f, refractionAmountPx = 0f) },
-                onDrawSurface = { drawRect(surface) },
-            ))
-            val dx = if (rtl) 82f else -82f
-            ProfileAction("Edit profile", R.drawable.ic_edit_profile, edit, dx, 0f, expanded) {
+            if (morph > 0.001f) {
+                Box(Modifier.fillMaxSize().drawPlainPrismalGlass(
+                    backdrop = backdrop,
+                    shape = { ProfileMenuShape(markPath, morph, rtl) },
+                    effects = {
+                        // The exact, concave logo is not a rounded rectangle. Prismal's
+                        // lens only supports rounded shapes, so blur this real path and
+                        // give the circular avatar its own safe lens below.
+                        applyPrismalGlassEffects(density = density, adaptiveLuminance = false, luminance = 0.5f,
+                            blurRadiusPx = with(density) { 7.dp.toPx() }, refractionHeightPx = 0f,
+                            refractionAmountPx = 0f, useVibrancy = false, saturation = 1.15f)
+                    },
+                    onDrawSurface = { drawMenuGlass(dark, density, morph, rtl) },
+                ))
+            }
+            val dx = if (rtl) PROFILE_STEP_DP else -PROFILE_STEP_DP
+            ProfileAction("Edit profile", R.drawable.ic_edit_profile, morph, dx, 0f, expanded) {
                 draftName = profileName
                 onExpandedChange(false)
                 editing = true
             }
-            ProfileAction("Settings", R.drawable.ic_nav_settings, settings, dx, 82f, expanded) {
+            ProfileAction("Settings", R.drawable.ic_nav_settings, morph, dx, PROFILE_STEP_DP, expanded) {
                 onExpandedChange(false)
                 onSettings()
             }
-            ProfileAction("Feedback", R.drawable.ic_feedback, feedback, 0f, 82f, expanded) {
+            ProfileAction("Feedback", R.drawable.ic_feedback, morph, 0f, PROFILE_STEP_DP, expanded) {
                 onExpandedChange(false)
                 try {
                     context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse("https://github.com/lxzrvi/Crescendo/issues/new")))
@@ -188,15 +199,28 @@ internal fun ProfileMenu(
                     },
                 contentAlignment = Alignment.Center,
             ) {
-                val pictureSize = 40.dp + 16.dp * scrim
-                Box(Modifier.size(pictureSize).clip(CircleShape).background(Color(0xFFBFC0C5)),
-                    contentAlignment = Alignment.Center) {
+                val glassSize = 48.dp + (profileLobeDiameter - 48.dp) * morph
+                Box(
+                    modifier = Modifier.size(glassSize).drawPlainPrismalGlass(
+                        backdrop = backdrop,
+                        shape = { CircleShape },
+                        effects = {
+                            applyPrismalGlassEffects(density = density, adaptiveLuminance = false, luminance = 0.5f,
+                                blurRadiusPx = with(density) { 6.dp.toPx() },
+                                refractionHeightPx = with(density) { 7.dp.toPx() },
+                                refractionAmountPx = with(density) { 9.dp.toPx() },
+                                depthEffect = true, useVibrancy = false, saturation = 1.15f)
+                        },
+                        onDrawSurface = { drawAvatarGlass(dark) },
+                    ).clip(CircleShape),
+                    contentAlignment = Alignment.Center,
+                ) {
                     if (photo != null) {
                         Image(bitmap = photo!!.asImageBitmap(), contentDescription = null, contentScale = ContentScale.Crop,
-                            modifier = Modifier.fillMaxSize())
+                            modifier = Modifier.size(32.dp + 7.dp * morph).clip(CircleShape))
                     } else {
                         Icon(painterResource(R.drawable.ic_profile_filled), contentDescription = null,
-                            tint = Color.White, modifier = Modifier.fillMaxSize(0.78f))
+                            tint = Color.White, modifier = Modifier.size(28.dp + 2.dp * morph))
                     }
                 }
             }
@@ -253,7 +277,8 @@ private fun androidx.compose.foundation.layout.BoxScope.ProfileAction(
     expanded: Boolean,
     onClick: () -> Unit,
 ) {
-    if (progress <= 0.001f) return
+    val reveal = ((progress - 0.28f) / 0.52f).coerceIn(0f, 1f)
+    if (reveal <= 0.001f) return
     val density = LocalDensity.current
     val travelX = with(density) { targetX.dp.toPx() }
     val travelY = with(density) { targetY.dp.toPx() }
@@ -261,9 +286,9 @@ private fun androidx.compose.foundation.layout.BoxScope.ProfileAction(
         modifier = Modifier.align(Alignment.TopEnd).size(68.dp).graphicsLayer {
             translationX = travelX * progress
             translationY = travelY * progress
-            val scale = 0.58f + 0.42f * progress
+            val scale = 0.30f + 0.70f * progress
             scaleX = scale; scaleY = scale
-            alpha = progress.coerceIn(0f, 1f)
+            alpha = reveal
         }.clip(CircleShape)
             .clickable(enabled = expanded && progress > 0.75f, role = Role.Button, onClick = onClick)
             .semantics { contentDescription = label },
@@ -273,53 +298,98 @@ private fun androidx.compose.foundation.layout.BoxScope.ProfileAction(
     }
 }
 
-/** The three permanent concave links follow the reference's C, leaving the right side open. */
+/**
+ * Rotate the exact launcher path 45 degrees to put its four lobes under the
+ * buttons. At full expansion this is precisely the launcher mark, not a C made
+ * from separately approximated circles and bridges. RTL mirrors the same mark.
+ */
 private data class ProfileMenuShape(
-    val edit: Float,
-    val settings: Float,
-    val feedback: Float,
-    val open: Float,
+    val launcherPath: AndroidPath,
+    val progress: Float,
     val rtl: Boolean,
 ) : Shape {
     override fun createOutline(size: Size, layoutDirection: LayoutDirection, density: Density): Outline {
         val unit = density.density
-        val direction = if (rtl) 1f else -1f
-        val origin = Offset(if (rtl) 34f * unit else size.width - 34f * unit, 34f * unit)
-        val e = Offset(origin.x + direction * 82f * unit * edit, origin.y)
-        val s = Offset(origin.x + direction * 82f * unit * settings, origin.y + 82f * unit * settings)
-        val f = Offset(origin.x, origin.y + 82f * unit * feedback)
-        val path = Path()
-        fun circle(center: Offset, radius: Float) {
-            if (radius > 0.01f) path.addOval(Rect(center.x - radius, center.y - radius, center.x + radius, center.y + radius))
+        val p = progress.coerceIn(0f, 1f)
+        val mirror = if (rtl) -1f else 1f
+        val anchorX = if (rtl) 34f * unit else size.width - 34f * unit
+        val anchorY = 34f * unit
+        // Original lobe centers are 300 path units from the origin. After the
+        // 45-degree rotation they are exactly 82dp apart on each screen axis.
+        val coefficient = PROFILE_STEP_DP * unit * p / 600f
+        val matrix = Matrix().apply {
+            setValues(floatArrayOf(
+                mirror * coefficient, -mirror * coefficient, anchorX - mirror * PROFILE_STEP_DP * unit * p / 2f,
+                coefficient, coefficient, anchorY + PROFILE_STEP_DP * unit * p / 2f,
+                0f, 0f, 1f,
+            ))
         }
-        fun link(a: Offset, b: Offset, strength: Float) {
-            val p = strength.coerceIn(0f, 1f)
-            val vx = b.x - a.x
-            val vy = b.y - a.y
-            val distance = hypot(vx, vy)
-            if (p < 0.01f || distance < 1f) return
-            val nx = -vy / distance
-            val ny = vx / distance
-            val outer = 26f * unit * p
-            val neck = 13f * unit * p
-            // addOval winds counter-clockwise; use the same winding for each bridge.
-            path.moveTo(a.x + nx * outer, a.y + ny * outer)
-            path.cubicTo(a.x + vx * 0.32f + nx * neck, a.y + vy * 0.32f + ny * neck,
-                a.x + vx * 0.68f + nx * neck, a.y + vy * 0.68f + ny * neck,
-                b.x + nx * outer, b.y + ny * outer)
-            path.lineTo(b.x - nx * outer, b.y - ny * outer)
-            path.cubicTo(a.x + vx * 0.68f - nx * neck, a.y + vy * 0.68f - ny * neck,
-                a.x + vx * 0.32f - nx * neck, a.y + vy * 0.32f - ny * neck,
-                a.x - nx * outer, a.y - ny * outer)
-            path.close()
+        val result = AndroidPath()
+        launcherPath.transform(matrix, result)
+        if (p < 0.9999f) {
+            // Keep the avatar full-size while the mark emerges from it. A true
+            // union avoids path winding holes where the two silhouettes overlap.
+            val radius = with(density) { (24.dp + (profileLobeDiameter / 2 - 24.dp) * p).toPx() }
+            val avatar = AndroidPath().apply { addCircle(anchorX, anchorY, radius, AndroidPath.Direction.CCW) }
+            result.op(avatar, AndroidPath.Op.UNION)
         }
-        circle(origin, (24f + 10f * open.coerceIn(0f, 1f)) * unit)
-        circle(e, 34f * unit * edit.coerceIn(0f, 1f))
-        circle(s, 34f * unit * settings.coerceIn(0f, 1f))
-        circle(f, 34f * unit * feedback.coerceIn(0f, 1f))
-        link(origin, e, edit)
-        link(e, s, minOf(edit, settings))
-        link(s, f, minOf(settings, feedback))
-        return Outline.Generic(path)
+        return Outline.Generic(result.asComposePath())
     }
+}
+
+private fun profileTint(dark: Boolean): Color = Color(0xFF0B101A).copy(alpha = if (dark) 0.48f else 0.60f)
+
+/** Soft internal reflections and shading; deliberately no stroke or border. */
+private fun DrawScope.drawMenuGlass(dark: Boolean, density: Density, progress: Float, rtl: Boolean) {
+    drawRect(profileTint(dark))
+    drawRect(Brush.linearGradient(
+        0f to Color.White.copy(alpha = 0.17f),
+        0.48f to Color.White.copy(alpha = 0.025f),
+        1f to Color.Black.copy(alpha = 0.16f),
+        start = Offset.Zero, end = Offset(size.width, size.height),
+    ))
+    val unit = density.density
+    val p = progress.coerceIn(0f, 1f)
+    val anchor = Offset(if (rtl) 34f * unit else size.width - 34f * unit, 34f * unit)
+    val step = PROFILE_STEP_DP * unit * p
+    val dx = if (rtl) step else -step
+    val centers = listOf(anchor, Offset(anchor.x + dx, anchor.y),
+        Offset(anchor.x + dx, anchor.y + step), Offset(anchor.x, anchor.y + step))
+    val lobeRadius = with(density) { profileLobeDiameter.toPx() / 2f }
+    centers.forEachIndexed { index, center ->
+        val radius = if (index == 0) (24f * unit + (lobeRadius - 24f * unit) * p) else lobeRadius * p
+        if (radius > 1f) {
+            val spot = Offset(center.x - radius * 0.27f, center.y - radius * 0.36f)
+            val glowRadius = radius * 1.2f
+            val highlight = Brush.radialGradient(
+                0f to Color.White.copy(alpha = 0.24f),
+                0.48f to Color.White.copy(alpha = 0.075f),
+                1f to Color.Transparent,
+                center = spot, radius = glowRadius,
+            )
+            drawCircle(brush = highlight, radius = glowRadius, center = spot)
+        }
+    }
+}
+
+/** The circular profile glass additionally uses Prismal's refractive lens where supported. */
+private fun DrawScope.drawAvatarGlass(dark: Boolean) {
+    drawRect(profileTint(dark))
+    drawRect(Brush.verticalGradient(
+        0f to Color.White.copy(alpha = 0.20f),
+        0.45f to Color.White.copy(alpha = 0.025f),
+        1f to Color.Black.copy(alpha = 0.18f),
+        endY = size.height,
+    ))
+    val spot = Offset(size.width * 0.28f, size.height * 0.20f)
+    val radius = size.minDimension * 0.65f
+    drawCircle(
+        brush = Brush.radialGradient(
+            0f to Color.White.copy(alpha = 0.25f),
+            0.55f to Color.White.copy(alpha = 0.06f),
+            1f to Color.Transparent,
+            center = spot, radius = radius.coerceAtLeast(1f),
+        ),
+        center = spot, radius = radius,
+    )
 }

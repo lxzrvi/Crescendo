@@ -26,8 +26,9 @@ import dev.chrisbanes.haze.blur.hazeBlur
 internal fun StatusBarBackdrop(input: HazeInput.Sources, liveBlur: Boolean) {
     val background = MaterialTheme.colorScheme.background
     val statusHeight = WindowInsets.statusBars.asPaddingValues().calculateTopPadding()
-    // No solid horizontal cutoff: the blur begins softly and fades well below the icons.
-    val totalHeight = statusHeight + 60.dp
+    // Fade continuously below the system icons, but finish before the Home
+    // wordmark starts so the overlay never washes out or blurs its changing color.
+    val totalHeight = statusHeight + 6.dp
     val fadeMask = remember {
         Brush.verticalGradient(
             0f to Color.Black.copy(alpha = 0.88f),

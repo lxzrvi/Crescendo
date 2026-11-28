@@ -1,3 +1,5 @@
 <resources>
     <string name="app_name">Crescendo</string>
+    <!-- Shared verbatim by the launcher foreground and the profile-menu silhouette. -->
+    <string name="launcher_mark_path" translatable="false">M0 -435 A135 135 0 0 1 0 -165 A165 165 0 1 0 165 0 A135 135 0 1 1 300 135 A165 165 0 0 0 135 300 A135 135 0 0 1 -135 300 A165 165 0 0 0 -300 135 A135 135 0 0 1 -300 -135 A165 165 0 0 0 -135 -300 A135 135 0 0 1 0 -435 Z</string>
 </resources>

@@ -30,8 +30,10 @@ import androidx.compose.foundation.layout.statusBars
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyListState
-import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.pager.HorizontalPager
+import androidx.compose.foundation.pager.PageSize
+import androidx.compose.foundation.pager.PagerState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.CircularProgressIndicator
@@ -41,6 +43,7 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.key
 import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
@@ -97,7 +100,7 @@ internal fun HomeMusicPage(
     onShuffle: () -> Unit,
     onVerticalScroll: (Float) -> Unit,
     listState: LazyListState,
-    quickState: LazyListState,
+    quickState: PagerState,
     bottomPadding: Dp,
     modifier: Modifier = Modifier,
 ) {
@@ -117,13 +120,13 @@ internal fun HomeMusicPage(
     val topIds = remember(topSongs) { topSongs.map { it.id } }
     var featuredIndex by remember(topIds) { androidx.compose.runtime.mutableIntStateOf(0) }
     val featured = topSongs.getOrNull(featuredIndex.coerceAtMost((topSongs.size - 1).coerceAtLeast(0)))
-    val quickGroups = remember(quickSongs) { quickSongs.chunked(4) }
+    val quickPages = remember(quickSongs) { quickPickPages(quickSongs) }
     val heroPixels = with(LocalDensity.current) { 300.dp.roundToPx() }
 
     fun nextQuickPicks() {
-        if (quickGroups.size > 1) {
-            val next = (quickState.firstVisibleItemIndex + 1) % quickGroups.size
-            scope.launch { quickState.animateScrollToItem(next) }
+        if (quickPages.isNotEmpty()) {
+            val next = (quickState.currentPage + 1) % QUICK_PICK_PAGES
+            scope.launch { quickState.animateScrollToPage(next) }
         }
     }
     fun toggleAllSongs() { showAll = !showAll }
@@ -152,7 +155,10 @@ internal fun HomeMusicPage(
     BoxWithConstraints(modifier = modifier.fillMaxSize()) {
         val allRows = remember(songs) { songs.chunked(4) }
         val shownRows = if (showAll) allRows else allRows.take(3)
+        // Keep the existing peek of the next column, but never make a page wider
+        // than the content area on a narrow window.
         val quickColumnWidth = (maxWidth - ContentSidePadding * 2 - 36.dp).coerceIn(190.dp, 360.dp)
+            .coerceAtMost((maxWidth - ContentSidePadding * 2).coerceAtLeast(1.dp))
         LazyColumn(
             state = listState,
             modifier = Modifier.fillMaxSize().nestedScroll(scrollConnection),
@@ -178,28 +184,37 @@ internal fun HomeMusicPage(
                     },
                     quickContent = {
                         if (library is MusicLibraryState.Ready && songs.isNotEmpty()) {
-                            SectionHeading(
-                                "Quick Picks",
-                                moreDescription = "Next quick picks",
-                                onMore = if (quickGroups.size > 1) ::nextQuickPicks else null,
-                            )
-                            LazyRow(
-                                state = quickState,
-                                contentPadding = PaddingValues(horizontal = ContentSidePadding),
-                                horizontalArrangement = Arrangement.spacedBy(12.dp),
-                            ) {
-                                items(quickGroups, key = { it.first().id }) { group ->
-                                    Column(modifier = Modifier.width(quickColumnWidth),
+                            if (quickPages.isNotEmpty()) {
+                                SectionHeading(
+                                    "Quick Picks",
+                                    moreDescription = "Next quick picks page",
+                                    onMore = ::nextQuickPicks,
+                                )
+                                HorizontalPager(
+                                    state = quickState,
+                                    pageSize = PageSize.Fixed(quickColumnWidth),
+                                    pageSpacing = 12.dp,
+                                    contentPadding = PaddingValues(horizontal = ContentSidePadding),
+                                    key = { it },
+                                ) { page ->
+                                    Column(modifier = Modifier.fillMaxWidth(),
                                         verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                                        group.forEach { song ->
+                                        quickPages[page].forEach { song ->
                                             SongListRow(song = song, artwork = artwork,
                                                 playing = isPlaying && currentSong?.id == song.id,
                                                 showDuration = true, onClick = { onSongClick(song) })
                                         }
                                     }
                                 }
+                                Spacer(Modifier.height(26.dp))
                             }
-                            Spacer(Modifier.height(26.dp))
+                            // Include the heading in the same fading scene, so the
+                            // transition from Quick Picks to All Songs has no seam.
+                            SectionHeading(
+                                "All Songs",
+                                note = if (songs.size == 1) "1 song" else "${songs.size} songs",
+                                onTitleClick = if (songs.size > 12) ::toggleAllSongs else null,
+                            )
                         }
                     },
                 )
@@ -213,13 +228,6 @@ internal fun HomeMusicPage(
                             LibraryMessage("No music found yet. Add songs to your device and reopen Crescendo.")
                         }
                     } else {
-                        item(key = "all-heading") {
-                            SectionHeading(
-                                "All Songs",
-                                note = if (songs.size == 1) "1 song" else "${songs.size} songs",
-                                onTitleClick = if (songs.size > 12) ::toggleAllSongs else null,
-                            )
-                        }
                         items(shownRows, key = { it.first().id }) { row ->
                             Row(
                                 modifier = Modifier.fillMaxWidth()
@@ -327,14 +335,16 @@ private fun SongGridCard(
             SongArtwork(song, artwork, Modifier.fillMaxSize(), 120.dp)
             if (playing) PlayingBadge(Modifier.align(Alignment.TopEnd).padding(4.dp))
         }
+        // Let metadata take the height it needs rather than clipping it to the
+        // narrow four-column cover width (including with larger system fonts).
         Text(song.title, color = if (playing) colors.primary else colors.onBackground,
             fontSize = 12.sp, lineHeight = 15.sp, fontWeight = FontWeight.SemiBold,
-            maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.padding(top = 6.dp))
+            softWrap = true, modifier = Modifier.fillMaxWidth().padding(top = 6.dp))
         Text(song.artist, color = colors.onBackground.copy(alpha = 0.60f), fontSize = 11.sp,
-            lineHeight = 14.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+            lineHeight = 14.sp, softWrap = true, modifier = Modifier.fillMaxWidth())
         formatSongDuration(song.durationMs)?.let { duration ->
-            Text(duration, color = colors.onBackground.copy(alpha = 0.43f), fontSize = 10.sp,
-                lineHeight = 13.sp, maxLines = 1)
+            Text(duration, color = colors.onBackground.copy(alpha = 0.55f), fontSize = 10.sp,
+                lineHeight = 13.sp, softWrap = true, modifier = Modifier.fillMaxWidth())
         }
     }
 }
@@ -363,7 +373,7 @@ internal fun SongListRow(
 ) {
     val colors = MaterialTheme.colorScheme
     Row(
-        modifier = modifier.fillMaxWidth().height(62.dp),
+        modifier = modifier.fillMaxWidth().heightIn(min = 62.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         Row(
@@ -441,11 +451,14 @@ internal fun SongListRow(
 @Composable
 internal fun SongArtwork(song: Song, artwork: AlbumArtworkLoader, modifier: Modifier, requestedSize: Dp) {
     val requestedPx = with(LocalDensity.current) { requestedSize.roundToPx() }
-    val bitmap by produceState<Bitmap?>(null, song.id, song.dateModified, requestedPx, artwork) {
-        value = null
-        value = artwork.load(song, requestedPx)
+    // Reuse a cached thumbnail immediately when a lazy item returns onscreen.
+    // Keying the state also prevents a previous song's cover flashing on reuse.
+    key(song.id, song.dateModified, requestedPx, artwork) {
+        val bitmap by produceState<Bitmap?>(artwork.cached(song, requestedPx)) {
+            if (value == null) value = artwork.load(song, requestedPx)
+        }
+        ArtworkImage(bitmap, modifier)
     }
-    ArtworkImage(bitmap, modifier)
 }
 
 @Composable
