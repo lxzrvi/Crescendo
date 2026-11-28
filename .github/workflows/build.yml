@@ -131,6 +131,6 @@ jobs:
         with:
           cache-read-only: true
 
-      # Lint and focused JVM tests run beside the signed APK, not on the critical assembly path.
+      # AGP 9 enables unit tests for debug by default; keep them beside release lint.
       - name: Analyze fatal release lint and run unit tests
-        run: ./gradlew lintVitalRelease testReleaseUnitTest --no-daemon --parallel --build-cache
+        run: ./gradlew lintVitalRelease testDebugUnitTest --no-daemon --parallel --build-cache
