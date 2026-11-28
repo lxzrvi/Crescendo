@@ -18,7 +18,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
 
       - name: Set up JDK 17
         uses: actions/setup-java@v5
@@ -63,7 +63,7 @@ jobs:
           printf '%s' "$SIGNING_KEY_B64" | base64 --decode > "$CRESCENDO_RELEASE_STORE_FILE"
           unset SIGNING_KEY_B64
           chmod +x ./gradlew
-          if ! ./gradlew assembleRelease --no-daemon --parallel --build-cache 2>&1 | tee "$RUNNER_TEMP/crescendo-build.log"; then
+          if ! ./gradlew assembleRelease -x lintVitalRelease --no-daemon --parallel --build-cache 2>&1 | tee "$RUNNER_TEMP/crescendo-build.log"; then
             python3 .github/scripts/annotate-build.py "$RUNNER_TEMP/crescendo-build.log"
             exit 1
           fi
@@ -97,3 +97,40 @@ jobs:
           if-no-files-found: error
           compression-level: 0
           retention-days: 30
+
+  lint:
+    name: Check release lint in parallel
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Install missing Android SDK components
+        shell: bash
+        run: |
+          set -euo pipefail
+          [[ -n "${ANDROID_HOME:-}" ]] || { echo "::error::Android SDK is missing on the runner."; exit 1; }
+          packages=()
+          [[ -f "$ANDROID_HOME/platforms/android-37.0/android.jar" ]] || packages+=("platforms;android-37.0")
+          [[ -x "$ANDROID_HOME/build-tools/36.0.0/apksigner" ]] || packages+=("build-tools;36.0.0")
+          if (( ${#packages[@]} )); then
+            manager="$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager"
+            [[ -x "$manager" ]] || { echo "::error::Android SDK manager is missing on the runner."; exit 1; }
+            yes | "$manager" --licenses >/dev/null 2>&1 || true
+            "$manager" "${packages[@]}"
+          fi
+
+      - name: Set up Gradle cache
+        uses: gradle/actions/setup-gradle@v6
+        with:
+          cache-read-only: true
+
+      # Keep fatal release checks, but don't make the signed APK wait for lint.
+      - name: Analyze fatal release lint
+        run: ./gradlew lintVitalRelease --no-daemon --parallel --build-cache
